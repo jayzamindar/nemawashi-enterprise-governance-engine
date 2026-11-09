@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nemawashi-governance-engine"
+version = "1.0.0"
+description = "Enterprise Multi-Agent Governance Engine with Sequential Nemawashi Deliberation and Cryptographic Audit Chaining"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Lead AI Platform Engineer" }
+]
+dependencies = [
+    "langgraph>=0.2.0",
+    "google-genai>=0.1.0",
+    "pydantic>=2.0.0",
+    "rich>=13.7.0",
+    "pytest>=8.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.4.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+pythonpath = ["src"]

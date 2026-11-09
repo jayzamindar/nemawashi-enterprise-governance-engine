@@ -1,0 +1,23 @@
+{
+  "max_allowed_cost_usd": 5000.0,
+  "max_blast_radius_auto_approve": 75,
+  "hitl_cost_threshold_usd": 500.0,
+  "hitl_blast_radius_threshold": 80,
+  "prohibited_actions": [
+    "drop_production_database",
+    "delete_root_iam_credentials",
+    "disable_cloudtrail_logging",
+    "modify_security_group_allow_all_ingress_0_0_0_0",
+    "terminate_payment_gateway_cluster"
+  ],
+  "prohibited_target_substrings": [
+    "prod-primary-db",
+    "root-kms-key",
+    "audit-bucket-lock"
+  ],
+  "sensitive_resources": [
+    "pci-dss-cardholder-env",
+    "hipaa-patient-records",
+    "prod-user-vault"
+  ]
+}

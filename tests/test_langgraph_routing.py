@@ -73,7 +73,9 @@ def test_mitigation_loop_watchdog_boundary_revision():
 def test_sequential_consensus_circle_populates_all_stakeholders(tmp_path, monkeypatch):
     """Verify that sequential execution collects structured votes from all 4 stakeholders."""
     test_ledger = tmp_path / "test_ledger.jsonl"
+    test_cache = tmp_path / "test_cache.json"
     monkeypatch.setattr("nemawashi.audit.ledger.DEFAULT_LEDGER_PATH", test_ledger)
+    monkeypatch.setattr("nemawashi.core.cache.DEFAULT_CACHE_PATH", test_cache)
 
     engine = NemawashiEngine(max_rounds=3)
     proposal = AgentProposal(
@@ -244,7 +246,9 @@ def test_fastapi_gateway_resume_endpoint(tmp_path, monkeypatch):
 def test_stakeholder_map_population(tmp_path, monkeypatch):
     """Verify that stakeholder_map is populated by all stakeholders and matches decisions."""
     test_ledger = tmp_path / "test_ledger.jsonl"
+    test_cache = tmp_path / "test_cache.json"
     monkeypatch.setattr("nemawashi.audit.ledger.DEFAULT_LEDGER_PATH", test_ledger)
+    monkeypatch.setattr("nemawashi.core.cache.DEFAULT_CACHE_PATH", test_cache)
 
     engine = NemawashiEngine(max_rounds=3)
     proposal = AgentProposal(

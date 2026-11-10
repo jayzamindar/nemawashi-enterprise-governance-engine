@@ -17,14 +17,14 @@ __pycache__/
 !.env.example
 *.local
 
-# Runtime logging outputs and ephemeral stores
+# Runtime state directories and ephemeral logs
 *.log
-audit_logs/*.jsonl
-storage/suspended_states/*.json
-cache/*.json
-!audit_logs/.gitkeep
-!storage/suspended_states/.gitkeep
+cache/*
 !cache/.gitkeep
+audit_logs/*
+!audit_logs/.gitkeep
+storage/*
+!storage/suspended_states/.gitkeep
 
 # IDE configuration
 .idea/

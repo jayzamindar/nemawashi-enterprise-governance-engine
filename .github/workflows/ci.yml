@@ -1,0 +1,54 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit & Integration Tests (Python 3.12)
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHONPATH: src
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Create virtual environment
+        run: |
+          uv venv .venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install -r requirements.txt
+
+      - name: Verify PYTHONPATH and package import resolution
+        run: |
+          echo "Current PYTHONPATH: $PYTHONPATH"
+          python -c "import sys; print('Python executable:', sys.executable)"
+          python -c "import sys; assert 'src' in sys.path or any('src' in p for p in sys.path), 'src not in sys.path'"
+          python -c "import nemawashi; print('Successfully imported nemawashi from:', nemawashi.__file__)"
+
+      - name: Run test suite
+        run: |
+          pytest tests -v

@@ -1,7 +1,6 @@
 # Nemawashi Enterprise Multi-Agent Governance Engine
 # Pinned Core Dependencies targeting Python 3.12
-# Core runtime and dependencies
-python>=3.12,<4.0
+# Core runtime: Python >=3.12,<4.0
 
 # Core framework dependencies
 langgraph>=0.2.0
@@ -9,6 +8,8 @@ google-genai>=0.4.0
 pydantic>=2.7.0,<3.0
 typing-extensions>=4.8.0
 types-setuptools>=69.0.0
+rich>=13.7.0
+pyyaml>=6.0.0
 
 # Non-blocking gateway infrastructure
 fastapi>=0.110.0

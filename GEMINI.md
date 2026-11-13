@@ -24,6 +24,9 @@ You are acting as a Principal AI Systems Engineer building the **Nemawashi Enter
 5. **Cryptographic HITL Callback Security**: `POST /resume` MUST enforce mandatory HMAC-SHA256 signature verification (`hmac.compare_digest`) using `NEMAWASHI_WEBHOOK_SECRET` from environment variables before unfreezing suspended state.
 6. **Cloud-Native Volume Portability**: All runtime paths (`NEMAWASHI_AUDIT_LOG_DIR`, `NEMAWASHI_CACHE_DIR`, `NEMAWASHI_STATE_DIR`) MUST be configurable via environment variables so Docker volumes persist state cleanly on AWS EC2.
 7. **Dual-Mode Execution**: Every agent must execute live via Gemini when `GEMINI_API_KEY` is set, and seamlessly fall back to deterministic rule-based evaluation when absent (ensuring zero-cost GitHub CI/CD execution).
+8. **Prompt Injection & Path Isolation**: All untrusted proposal fields passed to Gemini MUST be wrapped inside `<untrusted_proposal_data>` tags, and system prompt loaders MUST enforce `Path.is_relative_to(prompts_dir)`.
+9. **Round-Scoped Slate Reset & Policy Re-Check**: `deliberation_revision_node` MUST reset `stakeholder_votes` and `stakeholder_map` to `{}` on round increment and route back through `policy_precheck_node` (bypassing cache when `current_round > 1`).
+10. **Checkpoint Path & Tamper Integrity**: `proposal_id` MUST satisfy `^[a-zA-Z0-9_-]{1,128}$` and suspended HITL JSON checkpoints MUST validate `_state_hmac` via `hmac.compare_digest`.
 
 ## 4. Document Hierarchy (Source of Truth)
 When resolving ambiguity, follow this strict precedence:

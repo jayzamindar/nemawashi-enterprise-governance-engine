@@ -132,7 +132,7 @@ GEMINI.md (Workspace Constitution & Source of Truth)
    │                    │
    │                    ├── docs/DEPLOYMENT_AWS.md (AWS EC2 Free Tier Deployment Guide)
    │                    │
-   │                    └── docs/adr/ (Architecture Decision Records ADR-001..003)
+   │                    └── docs/adr/ (Architecture Decision Records ADR-001..006)
 ```
 
 | Document | Path | Scope & Description |
@@ -143,7 +143,7 @@ GEMINI.md (Workspace Constitution & Source of Truth)
 | **URD** | [`docs/URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) | 9 Actor personas, RACI governance matrix, operational use cases (UC-01 to UC-08), and User Acceptance Criteria (UAC-01 to UAC-12). |
 | **Roadmap** | [`docs/IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/IMPLEMENTATION_PLAN.md) | Phased TDD engineering roadmap, vulnerability mitigation matrix, and test verification gates. |
 | **AWS Guide** | [`docs/DEPLOYMENT_AWS.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/DEPLOYMENT_AWS.md) | Step-by-step production deployment on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) with Docker Compose. |
-| **ADR Catalog** | [`docs/adr/`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/adr/) | Architecture Decision Records and multi-model review board syntheses (`ADR-001`, `ADR-002`, `ADR-003`). |
+| **ADR Catalog** | [`docs/adr/`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/adr/) | Architecture Decision Records and multi-model review board syntheses (`ADR-001` through `ADR-006`). |
 
 ---
 

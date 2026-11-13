@@ -128,6 +128,8 @@ GEMINI.md (Workspace Constitution & Source of Truth)
    │             │
    │             └── docs/URD.md (User Requirements: Personas, RACI, Use Cases, UAC)
    │                    │
+   │                    ├── docs/PRODUCTION_READINESS_REPORT.md (Production Gate Report: GO / 66-of-66)
+   │                    │
    │                    ├── docs/IMPLEMENTATION_PLAN.md (Phased Engineering Blueprint)
    │                    │
    │                    ├── docs/DEPLOYMENT_AWS.md (AWS EC2 Free Tier Deployment Guide)
@@ -138,6 +140,7 @@ GEMINI.md (Workspace Constitution & Source of Truth)
 | Document | Path | Scope & Description |
 |---|---|---|
 | **Constitution** | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md) | Architectural invariants, locked technology stack, and engineering protocols. |
+| **PRR Gate** | [`docs/PRODUCTION_READINESS_REPORT.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRODUCTION_READINESS_REPORT.md) | Production Readiness Review & Test Verification Report — **GO Decision (66/66 Tests Passing)**. |
 | **TRD** | [`docs/TRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/TRD.md) | Exact Pydantic v2 models, LangGraph state channels, routing matrices, and cryptographic formulas. |
 | **PRD** | [`docs/PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md) | Product vision, quantifiable SLAs/KPIs, functional epics, and NFR budgets. |
 | **URD** | [`docs/URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) | 9 Actor personas, RACI governance matrix, operational use cases (UC-01 to UC-08), and User Acceptance Criteria (UAC-01 to UAC-12). |

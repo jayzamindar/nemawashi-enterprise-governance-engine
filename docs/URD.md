@@ -471,6 +471,27 @@ $$\text{Composite Risk} = \min\left(100, \text{round}\left(0.4 \times \text{Blas
 - **WHEN** `verify_ledger_chain()` is executed,
 - **THEN** it confirms all SHA-256 block hashes and `previous_hash` linkages are mathematically valid; if any record byte is manually altered, verification returns `False` identifying the exact tampered record index.
 
+### UAC-09: Semantic Cache Vote Lineage & Non-Repudiation
+- **GIVEN** a proposal that matches a cached entry ($\text{cosine similarity} \ge 0.95$),
+- **WHEN** `semantic_cache_check_node` processes the proposal,
+- **THEN** it bypasses the 4-agent circle and restores the authentic historical `stakeholder_votes` mapping and `deliberation_round` into state, and `commit_chained_audit_ledger_node` writes an `AuditRecord` containing the restored votes with `cache_hit = True`.
+
+### UAC-10: Cross-Platform File Locking & Timeout Resilience
+- **GIVEN** concurrent write or verify attempts against `nemawashi_ledger.jsonl` or `semantic_cache.json`,
+- **WHEN** multiple processes/threads commit simultaneously,
+- **THEN** `filelock.FileLock` serializes execution to prevent partial writes, and if lock acquisition exceeds the 10.0s timeout, the system catches `filelock.Timeout` and raises a clean `RuntimeError("Audit ledger lock acquisition timed out")`.
+
+### UAC-11: Cryptographic Ingress & State Anti-Tamper Security
+- **GIVEN** an asynchronous HITL escalation awaiting callback on `POST /resume`,
+- **WHEN** an operator submits an approval or rejection,
+- **THEN** the gateway validates the HMAC-SHA256 signature against `NEMAWASHI_WEBHOOK_SECRET` in constant time (`hmac.compare_digest`), rejecting malformed, truncated, or tampered signatures with HTTP 401.
+- **AND IF** the proposal ID fails regex `^[a-zA-Z0-9_-]{1,128}$` or the state file on disk fails its `_state_hmac` integrity check, the request is rejected with HTTP 400/422.
+
+### UAC-12: Clean Round Slate & Post-Revision Policy Re-Check
+- **GIVEN** a proposal requiring revision or rightsizing after Round 1,
+- **WHEN** `deliberation_revision_node` advances the state,
+- **THEN** it increments `current_round`, clears round-scoped `stakeholder_votes: {}` and `stakeholder_map: {}` for a clean slate, and routes directly to `policy_precheck_node` so optimized parameters are re-verified against policy guardrails before reaching the security stakeholder.
+
 ---
 
 ## 9. Compliance, Audit & Legal Alignment

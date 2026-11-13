@@ -60,6 +60,17 @@ class NemawashiEngine:
                 list(state.get("audit_ledger", [])) + ledger_update["audit_ledger"]
             )
 
+        # Remove the suspended state file from disk upon successful resumption (TRD-5.2)
+        from nemawashi.core.graph import SUSPENDED_STATES_DIR
+
+        target_dir = storage_dir or SUSPENDED_STATES_DIR
+        state_file = target_dir / f"{proposal_id}.json"
+        if state_file.exists():
+            try:
+                state_file.unlink()
+            except OSError:
+                pass
+
         return state
 
     def verify_audit_ledger(self) -> tuple[bool, str]:

@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from filelock import FileLock, Timeout
+
 from nemawashi.core.cache import SemanticProposalCache
 from nemawashi.core.models import AuditRecord, StructuredAgentVote
 from nemawashi.core.state import NemawashiState
@@ -151,58 +153,70 @@ def commit_chained_audit_ledger_node(
         }
     human_approval_json = json.dumps(human_approval, sort_keys=True) if human_approval else "null"
 
-    # Query cryptographic parent hash
-    last_index, previous_hash = get_latest_ledger_hash(target_path)
-    new_index = last_index + 1
-    timestamp = datetime.now(timezone.utc).isoformat()
-    deliberation_round = state.get("current_round", 1)
-    prompt_tokens = state.get("prompt_tokens", 0)
-    completion_tokens = state.get("completion_tokens", 0)
-    total_cost_usd = state.get("total_cost_usd", 0.0)
+    # Mutex Locking: acquire cross-platform filelock before reading parent hash or writing block
+    lock_file = f"{target_path}.lock"
+    try:
+        with FileLock(lock_file, timeout=10):
+            # Query cryptographic parent hash inside lock
+            last_index, previous_hash = get_latest_ledger_hash(target_path)
+            new_index = last_index + 1
+            timestamp = datetime.now(timezone.utc).isoformat()
+            deliberation_round = state.get("current_round", 1)
+            prompt_tokens = state.get("prompt_tokens", 0)
+            completion_tokens = state.get("completion_tokens", 0)
+            total_cost_usd = state.get("total_cost_usd", 0.0)
 
-    record_hash = calculate_record_hash(
-        index=new_index,
-        previous_hash=previous_hash,
-        timestamp=timestamp,
-        proposal_id=proposal.proposal_id,
-        verdict=verdict,
-        execution_permitted=execution_permitted,
-        composite_risk_score=composite_risk,
-        serialized_votes=serialized_votes_str,
-        mitigations_json=mitigations_json,
-        human_approval_json=human_approval_json,
-        round_num=deliberation_round,
-        total_cost_usd=total_cost_usd,
-    )
+            record_hash = calculate_record_hash(
+                index=new_index,
+                previous_hash=previous_hash,
+                timestamp=timestamp,
+                proposal_id=proposal.proposal_id,
+                verdict=verdict,
+                execution_permitted=execution_permitted,
+                composite_risk_score=composite_risk,
+                serialized_votes=serialized_votes_str,
+                mitigations_json=mitigations_json,
+                human_approval_json=human_approval_json,
+                round_num=deliberation_round,
+                total_cost_usd=total_cost_usd,
+            )
 
-    audit_entry = AuditRecord(
-        index=new_index,
-        timestamp=timestamp,
-        proposal_id=proposal.proposal_id,
-        action_type=proposal.action_type,
-        verdict=verdict,
-        execution_permitted=execution_permitted,
-        composite_risk_score=composite_risk,
-        stakeholder_votes=serialized_votes_map,
-        mitigations=mitigations,
-        human_approval=human_approval,
-        deliberation_round=deliberation_round,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        total_cost_usd=total_cost_usd,
-        previous_hash=previous_hash,
-        record_hash=record_hash,
-    )
+            audit_entry = AuditRecord(
+                index=new_index,
+                timestamp=timestamp,
+                proposal_id=proposal.proposal_id,
+                action_type=proposal.action_type,
+                verdict=verdict,
+                execution_permitted=execution_permitted,
+                composite_risk_score=composite_risk,
+                stakeholder_votes=serialized_votes_map,
+                mitigations=mitigations,
+                human_approval=human_approval,
+                deliberation_round=deliberation_round,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_cost_usd=total_cost_usd,
+                cache_hit=bool(state.get("cache_hit", False)),
+                previous_hash=previous_hash,
+                record_hash=record_hash,
+            )
 
-    # Atomically append to ledger JSONL
-    with open(target_path, "a", encoding="utf-8") as f:
-        f.write(audit_entry.model_dump_json() + "\n")
+            # Atomically append to ledger JSONL inside lock
+            with open(target_path, "a", encoding="utf-8") as f:
+                f.write(audit_entry.model_dump_json() + "\n")
+    except Timeout as err:
+        raise RuntimeError("Audit ledger lock acquisition timed out") from err
 
-    # If not a cache hit and resolution exists, register in semantic cache
+    # If not a cache hit and resolution exists, register in semantic cache with vote lineage
     if resolution is not None and not state.get("cache_hit", False):
         try:
             cache = SemanticProposalCache()
-            cache.store(proposal, resolution)
+            cache.store(
+                proposal=proposal,
+                resolution=resolution,
+                stakeholder_votes=state.get("stakeholder_votes", {}),
+                deliberation_round=state.get("current_round", 1),
+            )
         except Exception:
             pass
 
@@ -226,63 +240,72 @@ def verify_ledger_chain(ledger_path: Optional[Path] = None) -> Tuple[bool, str]:
     if not path.exists():
         return True, "Ledger does not exist yet (clean slate)."
 
-    expected_prev_hash = GENESIS_HASH
-    expected_index = 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = f"{path}.lock"
+    try:
+        with FileLock(lock_file, timeout=10):
+            if not path.exists():
+                return True, "Ledger does not exist yet (clean slate)."
 
-    with open(path, "r", encoding="utf-8") as f:
-        for line_num, line in enumerate(f, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                record = json.loads(stripped)
-            except Exception as e:
-                return False, f"Line {line_num}: Invalid JSON syntax ({e})"
+            expected_prev_hash = GENESIS_HASH
+            expected_index = 0
 
-            idx = record.get("index")
-            prev_hash = record.get("previous_hash")
-            rec_hash = record.get("record_hash")
+            with open(path, "r", encoding="utf-8") as f:
+                for line_num, line in enumerate(f, start=1):
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        record = json.loads(stripped)
+                    except Exception as e:
+                        return False, f"Line {line_num}: Invalid JSON syntax ({e})"
 
-            if idx != expected_index:
-                return False, f"Line {line_num}: Index mismatch (expected {expected_index}, got {idx})"
+                    idx = record.get("index")
+                    prev_hash = record.get("previous_hash")
+                    rec_hash = record.get("record_hash")
 
-            if prev_hash != expected_prev_hash:
-                return False, (
-                    f"Line {line_num}: Chain broken! Previous hash mismatch.\n"
-                    f"  Expected: {expected_prev_hash}\n"
-                    f"  Got:      {prev_hash}"
-                )
+                    if idx != expected_index:
+                        return False, f"Line {line_num}: Index mismatch (expected {expected_index}, got {idx})"
 
-            # Recompute hash
-            human_approval = record.get("human_approval")
-            human_approval_json = json.dumps(human_approval, sort_keys=True) if human_approval else "null"
-            votes_json = json.dumps(record.get("stakeholder_votes", {}), sort_keys=True)
-            mitigations_json = json.dumps(sorted(record.get("mitigations", [])))
-            cost = float(record.get("total_cost_usd", 0.0))
+                    if prev_hash != expected_prev_hash:
+                        return False, (
+                            f"Line {line_num}: Chain broken! Previous hash mismatch.\n"
+                            f"  Expected: {expected_prev_hash}\n"
+                            f"  Got:      {prev_hash}"
+                        )
 
-            recomputed = calculate_record_hash(
-                index=idx,
-                previous_hash=prev_hash,
-                timestamp=record.get("timestamp"),
-                proposal_id=record.get("proposal_id"),
-                verdict=record.get("verdict"),
-                execution_permitted=record.get("execution_permitted"),
-                composite_risk_score=record.get("composite_risk_score"),
-                serialized_votes=votes_json,
-                mitigations_json=mitigations_json,
-                human_approval_json=human_approval_json,
-                round_num=record.get("deliberation_round", 1),
-                total_cost_usd=cost,
-            )
+                    # Recompute hash
+                    human_approval = record.get("human_approval")
+                    human_approval_json = json.dumps(human_approval, sort_keys=True) if human_approval else "null"
+                    votes_json = json.dumps(record.get("stakeholder_votes", {}), sort_keys=True)
+                    mitigations_json = json.dumps(sorted(record.get("mitigations", [])))
+                    cost = float(record.get("total_cost_usd", 0.0))
 
-            if recomputed != rec_hash:
-                return False, (
-                    f"Line {line_num}: Tamper detected! Hash mismatch for record {idx}.\n"
-                    f"  Stored:     {rec_hash}\n"
-                    f"  Recomputed: {recomputed}"
-                )
+                    recomputed = calculate_record_hash(
+                        index=idx,
+                        previous_hash=prev_hash,
+                        timestamp=record.get("timestamp"),
+                        proposal_id=record.get("proposal_id"),
+                        verdict=record.get("verdict"),
+                        execution_permitted=record.get("execution_permitted"),
+                        composite_risk_score=record.get("composite_risk_score"),
+                        serialized_votes=votes_json,
+                        mitigations_json=mitigations_json,
+                        human_approval_json=human_approval_json,
+                        round_num=record.get("deliberation_round", 1),
+                        total_cost_usd=cost,
+                    )
 
-            expected_prev_hash = rec_hash
-            expected_index += 1
+                    if recomputed != rec_hash:
+                        return False, (
+                            f"Line {line_num}: Tamper detected! Hash mismatch for record {idx}.\n"
+                            f"  Stored:     {rec_hash}\n"
+                            f"  Recomputed: {recomputed}"
+                        )
 
-    return True, f"Ledger verified successfully ({expected_index} records intact)."
+                    expected_prev_hash = rec_hash
+                    expected_index += 1
+
+            return True, f"Ledger verified successfully ({expected_index} records intact)."
+    except Timeout as err:
+        raise RuntimeError("Audit ledger lock acquisition timed out") from err

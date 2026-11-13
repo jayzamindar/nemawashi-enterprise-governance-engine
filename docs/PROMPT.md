@@ -7,8 +7,10 @@
 > **Development Paradigm**: Strict Inside-Out, Test-Driven Development (TDD)  
 > **Runtime**: Python 3.12 (CPython 3.12.15 via `uv`)  
 > **Orchestrator**: LangGraph StateGraph with `typing.Annotated` Reducers  
-> **Core Architecture Reference**: [`IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/IMPLEMENTATION_PLAN.md)  
-> **User Requirements Reference**: [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/URD.md)  
+> **Technical Requirements Reference**: [`TRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/TRD.md)  
+> **Product Requirements Reference**: [`PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md)  
+> **Core Architecture Reference**: [`IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/IMPLEMENTATION_PLAN.md)  
+> **User Requirements Reference**: [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md)  
 
 ---
 
@@ -369,10 +371,11 @@ Run: `pytest tests/test_langgraph_routing.py -v` (Must pass 100%).
 **Test Modules**:
 - `tests/test_gemini_schema.py`
 - `tests/test_e2e_scenarios.py`
+- `tests/test_gateway_auth.py`
 **Prerequisites**: Layers 1 through 4 completed
 
 **Objective**:
-Implement the live Gemini API gateway using the official Google GenAI SDK (`google-genai`) with native `response_schema` binding, construct the FastAPI `/resume` callback ingress gateway, and build the interactive Rich CLI console.
+Implement the live Gemini API gateway using the official Google GenAI SDK (`google-genai`) with native `response_schema` binding, construct the FastAPI `/resume` callback ingress gateway with mandatory HMAC-SHA256 authentication, and build the interactive Rich CLI console.
 
 **TDD Step 1 (RED - Test Suite)**:
 1. `tests/test_gemini_schema.py`:
@@ -385,17 +388,23 @@ Implement the live Gemini API gateway using the official Google GenAI SDK (`goog
      * Scenario 3: Destructive database drop -> `CONSENSUS_VETO`.
      * Scenario 4: High-value GPU cluster expansion -> Non-blocking suspension and resumption.
    - Executes `verify_ledger_chain()` to prove 100% cryptographic integrity.
+3. `tests/test_gateway_auth.py`:
+   - Validates mandatory HMAC-SHA256 signature verification on `POST /resume` (`hmac.compare_digest`).
+   - Asserts HTTP 401 on missing, truncated, or tampered signature headers/tokens.
+   - Asserts HTTP 400/422 on path-traversal `proposal_id` payloads and `_state_hmac` disk tampering.
 
 **TDD Step 2 (GREEN - Production Code)**:
 1. Complete `src/nemawashi/agents/base.py`:
+   - Enforces `<untrusted_proposal_data>` prompt framing and `is_relative_to` path containment.
    - Validates candidate votes via `StructuredAgentVote.model_validate()`.
    - Calculates synthetic token counts derived from proposal string length.
 2. Complete `src/nemawashi/main.py`:
-   - Configures FastAPI app gateway with `/resume` POST route.
+   - Configures FastAPI app gateway with `/resume` POST route and HMAC-SHA256 authentication.
    - Implements Rich console demonstration for interactive CLI execution.
 
 **Verification**:
-Run full test suite: `pytest tests -v` (All tests must pass).
+Run gateway & scenario tests: `pytest tests/test_gemini_schema.py tests/test_e2e_scenarios.py tests/test_gateway_auth.py -v` (Must pass 100%).
+Run full test suite: `pytest tests -v` (All 66 tests must pass).
 Run interactive CLI: `python -m nemawashi.main`.
 ```
 
@@ -408,11 +417,12 @@ Run interactive CLI: `python -m nemawashi.main`.
 | **L1** | `models.py` | `tests/test_models.py` | 9 | Schema validation, `extra="forbid"`, `frozen=True`, pricing grid |
 | **L1** | `state.py` | `tests/test_state_reducers.py` | 7 | Monomorphic `append_vote`, list inflation rejection, deep-copying |
 | **L2** | `policy_engine.py` | `tests/test_policy_engine.py` | 5 | Blacklists, spend caps, <5ms deterministic policy checks |
-| **L2** | `cache.py` | `tests/test_cache.py` | 2 | L2 vector embeddings, cosine similarity matching >= 0.95 |
-| **L2** | `ledger.py` | `tests/test_audit_chain.py` | 4 | SHA-256 block hash chaining, tamper detection, immutability |
+| **L2** | `cache.py` | `tests/test_cache.py` | 5 | L2 vector embeddings, cosine similarity matching >= 0.95, 24h TTL, vote lineage |
+| **L2** | `ledger.py` | `tests/test_audit_chain.py` | 6 | SHA-256 block hash chaining, filelock mutex locking, Timeout handling |
 | **L3** | `agents/*.py` | `tests/test_agents.py` | 5 | Zero-trust, GDPR/HIPAA, FinOps spend caps, blast radius dampening |
 | **L3** | `optimizer.py` | `tests/test_optimizer.py` | 3 | Dynamic infrastructure rightsizing, spot conversion, cost reduction |
-| **L4** | `graph.py` | `tests/test_langgraph_routing.py` | 8 | Watchdog breaker, dynamic optimizer, non-blocking HITL checkpointing |
+| **L4** | `graph.py` | `tests/test_langgraph_routing.py` | 10 | Watchdog breaker, dynamic optimizer, slate reset, post-revision re-check |
 | **L5** | `base.py` | `tests/test_gemini_schema.py` | 2 | Gemini native `response_schema` compatibility, `model_validate` boundary |
+| **L5** | `gateway` | `tests/test_gateway_auth.py` | 9 | HMAC-SHA256 signature verification, _state_hmac disk security, path traversal |
 | **L5** | `main.py` | `tests/test_e2e_scenarios.py` | 5 | Production scenarios, FastAPI resumption, complete ledger chain proof |
-| **Total** | **All Layers** | **10 Test Modules** | **50** | **100% Passing Green across the entire architecture** |
+| **Total** | **All Layers** | **11 Test Modules** | **66** | **100% Passing Green across the entire architecture** |

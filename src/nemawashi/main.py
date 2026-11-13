@@ -7,12 +7,15 @@ Provides:
 """
 
 from datetime import datetime, timezone
+import hashlib
+import hmac
+import os
 from pathlib import Path
 import sys
 from typing import Any, Dict, Optional
 import uuid
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.panel import Panel
@@ -40,7 +43,11 @@ class ResumeProposalRequest(BaseModel):
     """Payload submitted to /resume to complete suspended HITL escalation."""
 
     proposal_id: str = Field(
-        ..., min_length=1, description="Proposal identifier matching suspended state"
+        ...,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9_-]{1,128}$",
+        description="Proposal identifier matching suspended state",
     )
     approved: bool = Field(
         ..., description="Operator decision: True to authorize, False to veto"
@@ -78,18 +85,77 @@ def health_check() -> Dict[str, str]:
     return {"status": "healthy", "service": "nemawashi-governance-engine"}
 
 
+def compute_resume_signature(
+    proposal_id: str,
+    approved: bool,
+    rationale: str,
+    secret: str,
+) -> str:
+    """Compute deterministic HMAC-SHA256 signature for resume callback payload."""
+    payload = f"{proposal_id}:{str(approved).lower()}:{rationale}"
+    return hmac.new(
+        secret.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 @app.post(
     "/resume",
     response_model=ResumeProposalResponse,
     status_code=status.HTTP_200_OK,
     tags=["Governance"],
 )
-def resume_deliberation(request: ResumeProposalRequest) -> ResumeProposalResponse:
+def resume_deliberation(
+    request: ResumeProposalRequest,
+    x_nemawashi_signature: Optional[str] = Header(default=None, alias="X-Nemawashi-Signature"),
+) -> ResumeProposalResponse:
     """External callback endpoint for resuming suspended human-in-the-loop deliberations.
 
+    Enforces mandatory HMAC-SHA256 signature verification using NEMAWASHI_WEBHOOK_SECRET.
     Loads the serialized state from local storage, applies operator decision and rationale,
     resumes graph execution, and seals the final record in the immutable audit ledger.
     """
+    secret = os.getenv("NEMAWASHI_WEBHOOK_SECRET")
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="NEMAWASHI_WEBHOOK_SECRET not configured",
+        )
+
+    # 1. Extract signature from header or body
+    sig_from_header = (
+        x_nemawashi_signature
+        if isinstance(x_nemawashi_signature, str)
+        else None
+    )
+    raw_sig = sig_from_header or request.auth_token
+    if not raw_sig or not isinstance(raw_sig, str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing HMAC-SHA256 callback signature (provide X-Nemawashi-Signature header or auth_token in payload)",
+        )
+
+    provided_sig = raw_sig.strip()
+    if provided_sig.lower().startswith("sha256="):
+        provided_sig = provided_sig[7:].strip()
+
+    # 2. Compute expected HMAC-SHA256 digest
+    expected_sig = compute_resume_signature(
+        proposal_id=request.proposal_id,
+        approved=request.approved,
+        rationale=request.rationale,
+        secret=secret,
+    )
+
+    # 3. Constant-time comparison
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid HMAC-SHA256 callback signature",
+        )
+
+    # 4. Resume execution through Nemawashi engine
     engine = NemawashiEngine()
     try:
         final_state = engine.resume_proposal(
@@ -101,6 +167,11 @@ def resume_deliberation(request: ResumeProposalRequest) -> ResumeProposalRespons
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Suspended proposal '{request.proposal_id}' not found in local storage.",
+        ) from err
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid proposal data: {str(err)}",
         ) from err
     except Exception as err:
         raise HTTPException(

@@ -4,7 +4,7 @@ import pytest
 from langgraph.graph import END
 
 from nemawashi.core.engine import NemawashiEngine
-from nemawashi.core.graph import build_nemawashi_graph, consensus_router
+from nemawashi.core.graph import build_nemawashi_graph, consensus_router, policy_routing
 from nemawashi.core.models import AgentProposal, Resolution, StructuredAgentVote
 from nemawashi.core.state import create_initial_state
 
@@ -200,12 +200,18 @@ def test_hitl_non_blocking_suspension_and_resumption(tmp_path, monkeypatch):
 def test_fastapi_gateway_resume_endpoint(tmp_path, monkeypatch):
     """Verify FastAPI gateway /resume POST endpoint resumes suspended deliberations."""
     from fastapi import HTTPException
-    from nemawashi.main import ResumeProposalRequest, resume_deliberation
+    from nemawashi.main import (
+        ResumeProposalRequest,
+        compute_resume_signature,
+        resume_deliberation,
+    )
 
     test_ledger = tmp_path / "test_ledger.jsonl"
     storage_dir = tmp_path / "suspended_states"
+    test_secret = "test-secret-key-32-bytes-long!"
     monkeypatch.setattr("nemawashi.audit.ledger.DEFAULT_LEDGER_PATH", test_ledger)
     monkeypatch.setattr("nemawashi.core.graph.SUSPENDED_STATES_DIR", storage_dir)
+    monkeypatch.setenv("NEMAWASHI_WEBHOOK_SECRET", test_secret)
 
     engine = NemawashiEngine(max_rounds=3)
     proposal = AgentProposal(
@@ -222,17 +228,39 @@ def test_fastapi_gateway_resume_endpoint(tmp_path, monkeypatch):
     suspended_state = engine.evaluate_proposal(proposal)
     assert suspended_state.get("suspended_for_hitl") is True
 
-    # Test 404 for nonexistent proposal
+    # Test 404 for nonexistent proposal with valid signature
+    nonexistent_id = "nonexistent-id"
+    default_rationale = "Operator decision supplied via FastAPI gateway callback"
+    nonexistent_token = compute_resume_signature(
+        proposal_id=nonexistent_id,
+        approved=True,
+        rationale=default_rationale,
+        secret=test_secret,
+    )
     with pytest.raises(HTTPException) as exc_info:
-        resume_deliberation(ResumeProposalRequest(proposal_id="nonexistent-id", approved=True))
+        resume_deliberation(
+            ResumeProposalRequest(
+                proposal_id=nonexistent_id,
+                approved=True,
+                auth_token=nonexistent_token,
+            )
+        )
     assert exc_info.value.status_code == 404
 
-    # Test 200 for valid proposal
+    # Test 200 for valid proposal with valid signature
+    valid_rationale = "VP Approved via FastAPI gateway"
+    valid_token = compute_resume_signature(
+        proposal_id=proposal.proposal_id,
+        approved=True,
+        rationale=valid_rationale,
+        secret=test_secret,
+    )
     response = resume_deliberation(
         ResumeProposalRequest(
             proposal_id=proposal.proposal_id,
             approved=True,
-            rationale="VP Approved via FastAPI gateway",
+            rationale=valid_rationale,
+            auth_token=valid_token,
         )
     )
     assert response.status == "RESUMED"
@@ -271,3 +299,114 @@ def test_stakeholder_map_population(tmp_path, monkeypatch):
     votes = final_state.get("stakeholder_votes", {})
     for sid, vote_str in s_map.items():
         assert vote_str == votes[sid].vote
+
+
+def test_revision_loop_rechecks_policy_and_bypasses_cache(tmp_path, monkeypatch):
+    """Verify that Round 2 revisions re-check policy before security, immediately vetoing policy breaches."""
+    test_ledger = tmp_path / "test_ledger.jsonl"
+    test_cache = tmp_path / "test_cache.json"
+    monkeypatch.setattr("nemawashi.audit.ledger.DEFAULT_LEDGER_PATH", test_ledger)
+    monkeypatch.setattr("nemawashi.core.cache.DEFAULT_CACHE_PATH", test_cache)
+
+    # 1. Test policy_routing unit invariants
+    dummy_proposal = AgentProposal(
+        proposal_id="p-routing-test",
+        proposing_agent="agent-worker",
+        action_type="scale_cluster",
+        action_description="Routine scale cluster",
+        target_resource="worker-pool",
+        estimated_cost_usd=50.0,
+        estimated_blast_radius=20,
+    )
+    # Policy failed -> immediate veto
+    s_failed = create_initial_state(proposal=dummy_proposal)
+    s_failed["policy_passed"] = False
+    assert policy_routing(s_failed) == "immediate_policy_veto_node"
+
+    # Policy passed & round 1 -> semantic cache check
+    s_round1 = create_initial_state(proposal=dummy_proposal)
+    s_round1["policy_passed"] = True
+    s_round1["current_round"] = 1
+    assert policy_routing(s_round1) == "semantic_cache_check_node"
+
+    # Policy passed & round > 1 -> bypass cache directly to security node
+    s_round2 = create_initial_state(proposal=dummy_proposal)
+    s_round2["policy_passed"] = True
+    s_round2["current_round"] = 2
+    assert policy_routing(s_round2) == "security_stakeholder_node"
+
+    # 2. End-to-end traversal: proposal mutated during optimization to a blacklisted target
+    engine = NemawashiEngine(max_rounds=3)
+
+    proposal = AgentProposal(
+        proposal_id="p-post-rev-veto",
+        proposing_agent="agent-worker",
+        action_type="scale_cluster",
+        action_description="Scale inference cluster with high initial spend",
+        target_resource="worker-cluster",
+        estimated_cost_usd=800.0,
+        estimated_blast_radius=50,
+    )
+
+    from nemawashi.agents.optimizer import CostOptimizationAgent
+    original_optimize = CostOptimizationAgent.optimize
+
+    def malicious_optimizer_mutator(self, proposal, finops_vote=None):
+        optimized = original_optimize(self, proposal, finops_vote=finops_vote)
+        # Mutate to blacklisted target resource substring "prod-primary-db"
+        return AgentProposal(
+            proposal_id=optimized.proposal_id,
+            proposing_agent=optimized.proposing_agent,
+            action_type=optimized.action_type,
+            action_description=optimized.action_description,
+            target_resource="prod-primary-db-replica",
+            estimated_cost_usd=optimized.estimated_cost_usd,
+            estimated_blast_radius=optimized.estimated_blast_radius,
+            parameters=optimized.parameters,
+        )
+
+    monkeypatch.setattr(CostOptimizationAgent, "optimize", malicious_optimizer_mutator)
+
+    final_state = engine.evaluate_proposal(proposal)
+
+    # Must be caught at round 2 by policy_precheck_node and vetoed
+    assert final_state.get("current_round") == 2
+    assert final_state.get("policy_passed") is False
+    assert final_state.get("execution_permitted") is False
+    assert final_state.get("resolution").verdict == "CONSENSUS_VETO"
+    assert any("prod-primary-db" in v for v in final_state.get("policy_violations", []))
+    assert final_state.get("audit_committed") is True
+    assert final_state.get("audit_record_hash") is not None
+
+
+def test_deliberation_revision_resets_round_scoped_votes():
+    """Verify that deliberation_revision_node increments round and clears round-scoped votes (TRD-1.2)."""
+    from nemawashi.core.graph import deliberation_revision_node
+
+    proposal = AgentProposal(
+        proposal_id="p-rev-slate",
+        proposing_agent="agent-worker",
+        action_type="scale_cluster",
+        action_description="Scale cluster with excessive cost",
+        target_resource="worker-cluster",
+        estimated_cost_usd=1200.0,
+        estimated_blast_radius=40,
+    )
+    finops_vote = StructuredAgentVote(
+        stakeholder_id="finops",
+        vote="MITIGATE",
+        risk_tags=["budget-overrun"],
+        mitigation_requirements=["Require cost reduction"],
+    )
+
+    state = create_initial_state(proposal=proposal, max_rounds=3)
+    state["current_round"] = 1
+    state["stakeholder_votes"] = {"finops": finops_vote}
+    state["stakeholder_map"] = {"finops": finops_vote.model_dump()}
+
+    update = deliberation_revision_node(state)
+
+    assert update["current_round"] == 2
+    assert update["stakeholder_votes"] == {}
+    assert update["stakeholder_map"] == {}
+

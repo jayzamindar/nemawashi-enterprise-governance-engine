@@ -7,8 +7,12 @@ immutable audit ledger node.
 """
 
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import json
+import os
 from pathlib import Path
+import re
 from typing import Any, Dict, Literal, Optional
 from langgraph.graph import END, START, StateGraph
 from rich.console import Console
@@ -84,15 +88,38 @@ def deserialize_state(data: Dict[str, Any]) -> NemawashiState:
     return state  # type: ignore
 
 
+PROPOSAL_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+
+
+def validate_proposal_id(proposal_id: str) -> None:
+    """Validate proposal_id against strict alphanumeric pattern to prevent path traversal."""
+    if not proposal_id or not PROPOSAL_ID_REGEX.match(proposal_id):
+        raise ValueError(
+            f"Invalid proposal_id '{proposal_id}'. "
+            "Must be 1-128 characters matching ^[a-zA-Z0-9_-]{1,128}$ (no path traversal permitted)."
+        )
+
+
 def save_suspended_state(
     state: NemawashiState, storage_dir: Optional[Path] = None
 ) -> Path:
     """Persist suspended NemawashiState to local storage for non-blocking asynchronous resumption."""
+    proposal_id = state["proposal"].proposal_id
+    validate_proposal_id(proposal_id)
+
     target_dir = storage_dir or SUSPENDED_STATES_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
-    proposal_id = state["proposal"].proposal_id
     file_path = target_dir / f"{proposal_id}.json"
     serialized = serialize_state(state)
+
+    secret = os.getenv("NEMAWASHI_WEBHOOK_SECRET")
+    if secret:
+        canonical_bytes = json.dumps(serialized, sort_keys=True).encode("utf-8")
+        state_hmac = hmac.new(
+            secret.encode("utf-8"), canonical_bytes, hashlib.sha256
+        ).hexdigest()
+        serialized["_state_hmac"] = state_hmac
+
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(serialized, f, indent=2)
     return file_path
@@ -102,6 +129,8 @@ def load_suspended_state(
     proposal_id: str, storage_dir: Optional[Path] = None
 ) -> NemawashiState:
     """Load and deserialize a suspended NemawashiState from local storage."""
+    validate_proposal_id(proposal_id)
+
     target_dir = storage_dir or SUSPENDED_STATES_DIR
     file_path = target_dir / f"{proposal_id}.json"
     if not file_path.exists():
@@ -110,6 +139,21 @@ def load_suspended_state(
         )
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
+
+    secret = os.getenv("NEMAWASHI_WEBHOOK_SECRET")
+    if secret and "_state_hmac" in data:
+        expected_hmac = data.pop("_state_hmac")
+        canonical_bytes = json.dumps(data, sort_keys=True).encode("utf-8")
+        computed_hmac = hmac.new(
+            secret.encode("utf-8"), canonical_bytes, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected_hmac, computed_hmac):
+            raise ValueError(
+                f"Suspended state integrity violation: HMAC mismatch for proposal '{proposal_id}'"
+            )
+    elif "_state_hmac" in data:
+        data.pop("_state_hmac")
+
     return deserialize_state(data)
 
 
@@ -180,18 +224,32 @@ def policy_precheck_node(state: NemawashiState) -> Dict[str, Any]:
 
 def policy_routing(
     state: NemawashiState,
-) -> Literal["semantic_cache_check_node", "immediate_policy_veto_node"]:
-    """Routes based on deterministic policy evaluation."""
-    if state.get("policy_passed", False):
-        return "semantic_cache_check_node"
-    return "immediate_policy_veto_node"
+) -> Literal[
+    "immediate_policy_veto_node",
+    "security_stakeholder_node",
+    "semantic_cache_check_node",
+]:
+    """Routes based on deterministic policy evaluation and deliberation iteration round.
+
+    - Priority 1: policy_passed == False -> immediate_policy_veto_node
+    - Priority 2: policy_passed == True and current_round > 1 -> security_stakeholder_node (bypasses cache on re-check)
+    - Priority 3: policy_passed == True and current_round <= 1 -> semantic_cache_check_node (Round 1 cache eligible)
+    """
+    if not state.get("policy_passed", False):
+        return "immediate_policy_veto_node"
+
+    if state.get("current_round", 1) > 1:
+        return "security_stakeholder_node"
+
+    return "semantic_cache_check_node"
 
 
 def semantic_cache_check_node(state: NemawashiState) -> Dict[str, Any]:
     """Pre-Circle Semantic Cache Guardrail Layer.
 
     Queries local vector cache for semantically equivalent proposals (cosine >= 0.95).
-    Upon a cache hit, bypasses the multi-agent circle to eliminate duplicate token costs and latency.
+    Upon a cache hit, bypasses the multi-agent circle to eliminate duplicate token costs and latency,
+    restoring historical stakeholder vote lineage and map into state for audit continuity.
     """
     cache = SemanticProposalCache()
     match = cache.lookup(state["proposal"])
@@ -199,11 +257,20 @@ def semantic_cache_check_node(state: NemawashiState) -> Dict[str, Any]:
     if match and match.similarity >= 0.95:
         res = match.resolution
         permitted = res.verdict in ("UNANIMOUS_CONSENSUS", "CONDITIONAL_ALIGNMENT")
+
+        restored_votes = match.stakeholder_votes
+        stakeholder_map = {
+            role: vote.vote if isinstance(vote, StructuredAgentVote) else vote.get("vote", "")
+            for role, vote in restored_votes.items()
+        }
+
         return {
             "cache_hit": True,
             "cached_resolution": res,
             "resolution": res,
             "execution_permitted": permitted,
+            "stakeholder_votes": restored_votes,
+            "stakeholder_map": stakeholder_map,
         }
 
     return {"cache_hit": False}
@@ -403,10 +470,17 @@ def consensus_router(
 
 
 def deliberation_revision_node(state: NemawashiState) -> Dict[str, Any]:
-    """Advances deliberation round counter and prepares state for next review cycle."""
+    """Advances deliberation round counter and resets round-scoped vote views.
+
+    Round 2+ evaluates the revised/optimized proposal with a clean round slate,
+    resetting stakeholder_votes and stakeholder_map, while the global votes
+    channel retains full multi-round history via append_vote.
+    """
     current_round = state.get("current_round", 1)
     return {
         "current_round": current_round + 1,
+        "stakeholder_votes": {},
+        "stakeholder_map": {},
     }
 
 
@@ -451,15 +525,27 @@ def immediate_policy_veto_node(state: NemawashiState) -> Dict[str, Any]:
     if not violations:
         violations.append("Consensus VETO issued during multi-agent deliberation.")
 
-    resolution = state.get("resolution") or Resolution(
-        proposal_id=state["proposal"].proposal_id,
-        verdict="CONSENSUS_VETO",
-        composite_risk_score=100,
-        mandatory_mitigations=[f"VIOLATION: {v}" for v in violations],
-        requires_human_approval=False,
-        requires_revision=False,
-        summary="Structural VETO: Policy violation or security threshold breach.",
-    )
+    # Force VETO resolution when policy has failed
+    if not state.get("policy_passed", False):
+        resolution = Resolution(
+            proposal_id=state["proposal"].proposal_id,
+            verdict="CONSENSUS_VETO",
+            composite_risk_score=100,
+            mandatory_mitigations=[f"VIOLATION: {v}" for v in violations],
+            requires_human_approval=False,
+            requires_revision=False,
+            summary="Structural VETO: Policy violation or security threshold breach.",
+        )
+    else:
+        resolution = state.get("resolution") or Resolution(
+            proposal_id=state["proposal"].proposal_id,
+            verdict="CONSENSUS_VETO",
+            composite_risk_score=100,
+            mandatory_mitigations=[f"VIOLATION: {v}" for v in violations],
+            requires_human_approval=False,
+            requires_revision=False,
+            summary="Structural VETO: Policy violation or security threshold breach.",
+        )
     return {
         "policy_passed": False,
         "policy_violations": violations,
@@ -540,13 +626,14 @@ def build_nemawashi_graph() -> StateGraph:
     builder.add_edge(START, "intake_proposal_node")
     builder.add_edge("intake_proposal_node", "policy_precheck_node")
 
-    # Policy Routing: Policy Pass -> Semantic Cache Check, Policy Fail -> Immediate Veto
+    # Policy Routing: Policy Pass -> Semantic Cache Check (Round 1) or Security Node (Round > 1), Policy Fail -> Immediate Veto
     builder.add_conditional_edges(
         "policy_precheck_node",
         policy_routing,
         {
-            "semantic_cache_check_node": "semantic_cache_check_node",
             "immediate_policy_veto_node": "immediate_policy_veto_node",
+            "security_stakeholder_node": "security_stakeholder_node",
+            "semantic_cache_check_node": "semantic_cache_check_node",
         },
     )
 
@@ -582,8 +669,8 @@ def build_nemawashi_graph() -> StateGraph:
     # Cost Optimizer feeds into deliberation revision
     builder.add_edge("cost_optimization_agent_node", "deliberation_revision_node")
 
-    # Deliberation Loop: revision node feeds back to security
-    builder.add_edge("deliberation_revision_node", "security_stakeholder_node")
+    # Deliberation Loop: revision node feeds back to policy precheck
+    builder.add_edge("deliberation_revision_node", "policy_precheck_node")
 
     # Terminal Funnels
     builder.add_edge("immediate_policy_veto_node", "commit_chained_audit_ledger_node")

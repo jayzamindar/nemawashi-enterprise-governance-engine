@@ -181,3 +181,89 @@ def test_state_immutability_assertion(tmp_path):
         commit_chained_audit_ledger_node(state, ledger_path=ledger_file)
 
     assert "State immutability violation" in str(exc_info.value)
+
+
+def test_concurrent_ledger_commits_maintain_unbroken_hash_chain(tmp_path):
+    """Verify that multiple concurrent threads committing to the ledger maintain a sequential unbroken hash chain."""
+    import concurrent.futures
+
+    ledger_file = tmp_path / "concurrent_ledger.jsonl"
+    num_threads = 10
+
+    def commit_record(i: int):
+        proposal = AgentProposal(
+            proposal_id=f"p-concurrent-{i}",
+            proposing_agent=f"agent-{i}",
+            action_type="scale_cluster",
+            action_description=f"Concurrent scale action {i}",
+            target_resource=f"resource-{i}",
+            estimated_cost_usd=float(i),
+            estimated_blast_radius=5,
+        )
+        state = create_initial_state(proposal=proposal)
+        state["policy_passed"] = True
+        state["resolution"] = Resolution(
+            proposal_id=f"p-concurrent-{i}",
+            verdict="UNANIMOUS_CONSENSUS",
+            composite_risk_score=5,
+            summary=f"Approved concurrent task {i}",
+        )
+        return commit_chained_audit_ledger_node(state, ledger_path=ledger_file)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(commit_record, i) for i in range(num_threads)]
+        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+    assert len(results) == num_threads
+    for res in results:
+        assert res["audit_committed"] is True
+        assert res["audit_record_hash"] is not None
+
+    # Verify that all 10 records are written sequentially (indices 0 through 9)
+    with open(ledger_file, "r", encoding="utf-8") as f:
+        records = [json.loads(line) for line in f if line.strip()]
+
+    assert len(records) == num_threads
+    indices = [r["index"] for r in records]
+    assert indices == list(range(num_threads)), f"Indices must appear in sequential order 0..{num_threads-1}, got: {indices}"
+
+    # Verify cryptographic integrity of the entire chain
+    valid, msg = verify_ledger_chain(ledger_file)
+    assert valid is True, f"Ledger verification failed: {msg}"
+    assert f"{num_threads} records intact" in msg
+
+
+def test_ledger_lock_timeout_raises_runtime_error(tmp_path, monkeypatch):
+    """Verify that filelock.Timeout is caught and converted to a clean RuntimeError (TRD-3.2)."""
+    from filelock import FileLock, Timeout
+
+    ledger_file = tmp_path / "timeout_ledger.jsonl"
+    ledger_file.touch()
+
+    proposal = AgentProposal(
+        proposal_id="p-timeout",
+        proposing_agent="agent-worker",
+        action_type="scale",
+        action_description="scale",
+        target_resource="target",
+    )
+    state = create_initial_state(proposal=proposal)
+    state["policy_passed"] = True
+    state["resolution"] = Resolution(
+        proposal_id="p-timeout",
+        verdict="UNANIMOUS_CONSENSUS",
+        composite_risk_score=5,
+        summary="Approved",
+    )
+
+    def mock_enter(self):
+        raise Timeout("Simulated lock timeout")
+
+    monkeypatch.setattr(FileLock, "__enter__", mock_enter)
+
+    with pytest.raises(RuntimeError, match="Audit ledger lock acquisition timed out"):
+        commit_chained_audit_ledger_node(state, ledger_path=ledger_file)
+
+    with pytest.raises(RuntimeError, match="Audit ledger lock acquisition timed out"):
+        verify_ledger_chain(ledger_path=ledger_file)
+

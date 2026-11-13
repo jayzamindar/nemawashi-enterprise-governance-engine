@@ -1,0 +1,28 @@
+# Version control & tooling
+.git/
+.github/
+.vscode/
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local configuration & secrets
+.env
+*.lock
+
+# Runtime operational state & logs
+audit_logs/*.jsonl
+cache/*.json
+storage/suspended_states/*.json
+
+# Documentation and design scratchpads
+docs/
+*.md
+!README.md
+Repo_Baseline_AuditReport.txt.txt

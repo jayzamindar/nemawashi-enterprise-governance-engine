@@ -205,6 +205,10 @@ class AuditRecord(BaseModel):
     total_cost_usd: float = Field(
         default=0.0, ge=0.0, description="Accrued running financial cost in USD"
     )
+    cache_hit: bool = Field(
+        default=False,
+        description="Whether this deliberation was satisfied via semantic vector cache",
+    )
     previous_hash: str = Field(
         ..., description="SHA-256 hash of the preceding ledger record"
     )

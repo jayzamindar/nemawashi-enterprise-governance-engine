@@ -19,6 +19,8 @@ __pycache__/
 
 # Runtime state directories and ephemeral logs
 *.log
+*.lock
+tmp_audit/
 cache/*
 !cache/.gitkeep
 audit_logs/*

@@ -296,3 +296,54 @@ def test_text_embedding_deterministic_across_pythonhashseed():
         [sys.executable, "-c", code], env=env2, text=True, encoding="utf-8"
     )
     assert json.loads(out1) == json.loads(out2)
+
+
+def test_semantic_cache_prunes_expired_and_excess_entries_on_store(tmp_path):
+    """Verify store() prunes >24h expired entries and enforces max_entries cap."""
+    cache_file = tmp_path / "eviction_cache.json"
+    cache = SemanticProposalCache(cache_path=cache_file, max_entries=2)
+
+    p1 = AgentProposal(
+        proposal_id="p-old",
+        proposing_agent="agent-1",
+        action_type="scale_cache",
+        action_description="Old entry",
+        target_resource="redis-1",
+    )
+    r1 = Resolution(
+        proposal_id="p-old",
+        verdict="UNANIMOUS_CONSENSUS",
+        composite_risk_score=10,
+        summary="Approved",
+    )
+    cache.store(p1, r1)
+
+    # Age p1 past 24 hours on disk
+    with open(cache_file, encoding="utf-8") as f:
+        entries = json.load(f)
+    entries[0]["cached_at"] = datetime(2020, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat()
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(entries, f)
+
+    # Store 3 fresh entries; p-old must be evicted (>24h) and max_entries=2 must keep only the newest 2
+    for idx in range(1, 4):
+        prop = AgentProposal(
+            proposal_id=f"p-fresh-{idx}",
+            proposing_agent="agent-1",
+            action_type="scale_cache",
+            action_description=f"Fresh entry {idx}",
+            target_resource=f"redis-{idx}",
+        )
+        res = Resolution(
+            proposal_id=f"p-fresh-{idx}",
+            verdict="UNANIMOUS_CONSENSUS",
+            composite_risk_score=10,
+            summary="Approved",
+        )
+        cache.store(prop, res)
+
+    with open(cache_file, encoding="utf-8") as f:
+        persisted = json.load(f)
+    persisted_ids = [e["proposal_id"] for e in persisted]
+    assert persisted_ids == ["p-fresh-2", "p-fresh-3"]
+    assert not hasattr(cache, "_lock")

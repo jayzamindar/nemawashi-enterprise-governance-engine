@@ -300,3 +300,52 @@ def test_canonical_json_unicode_and_verify_chain(tmp_path):
     valid, msg = verify_ledger_chain(ledger_file)
     assert valid is True, f"Unicode canonical ledger verification failed: {msg}"
     assert "1 records intact" in msg
+
+
+def test_ledger_rotation_and_retention_pruning(tmp_path, monkeypatch):
+    """Verify ledger rotates when size >= AUDIT_LOG_MAX_SIZE_MB and prunes archives older than retention."""
+    import os
+    import time
+
+    ledger_file = tmp_path / "rot_ledger.jsonl"
+    monkeypatch.setenv("AUDIT_LOG_MAX_SIZE_MB", "0.0001")  # ~104 bytes
+    monkeypatch.setenv("AUDIT_LOG_MAX_RETENTION_DAYS", "30")
+
+    # Create a stale rotated archive older than 30 days
+    stale_archive = tmp_path / "rot_ledger.20200101T000000000000Z.jsonl"
+    stale_archive.write_text("{}\n", encoding="utf-8")
+    old_mtime = time.time() - (45 * 86400)
+    os.utime(stale_archive, (old_mtime, old_mtime))
+
+    for idx in range(2):
+        proposal = AgentProposal(
+            proposal_id=f"p-rot-{idx}",
+            proposing_agent="agent-1",
+            action_type="scale_up",
+            action_description=f"Scale up {idx}",
+            target_resource="pool-1",
+        )
+        state = create_initial_state(proposal=proposal)
+        state["policy_passed"] = True
+        state["resolution"] = Resolution(
+            proposal_id=f"p-rot-{idx}",
+            verdict="UNANIMOUS_CONSENSUS",
+            composite_risk_score=10,
+            summary="Approved",
+        )
+        res = commit_chained_audit_ledger_node(state, ledger_path=ledger_file)
+        assert res["audit_committed"] is True
+
+    # Stale archive must have been pruned
+    assert not stale_archive.exists()
+
+    # Active ledger should have rotated after record 0, leaving 1 rotated archive + active ledger
+    rotated_archives = [
+        p for p in tmp_path.glob("rot_ledger.*.jsonl") if p.name != ledger_file.name
+    ]
+    assert len(rotated_archives) == 1
+
+    valid_active, _ = verify_ledger_chain(ledger_file)
+    valid_archive, _ = verify_ledger_chain(rotated_archives[0])
+    assert valid_active is True
+    assert valid_archive is True

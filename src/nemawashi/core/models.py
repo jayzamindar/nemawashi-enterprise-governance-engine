@@ -4,10 +4,13 @@ Enforces strict structured memory contracts to prevent context dilution,
 persona drift, and unconstrained token consumption, with real-time FinOps token observability.
 """
 
+import json
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+MAX_PROPOSAL_PARAMETERS_BYTES = 65_536
 
 
 class StructuredAgentVote(BaseModel):
@@ -150,7 +153,10 @@ class AgentProposal(BaseModel):
         description="Unique UUID or identifier for the proposal",
     )
     proposing_agent: str = Field(
-        ..., min_length=1, description="Agent name or service initiating the request"
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Agent name or service initiating the request",
     )
     action_type: ActionType = Field(
         ...,
@@ -159,11 +165,13 @@ class AgentProposal(BaseModel):
     action_description: str = Field(
         ...,
         min_length=1,
+        max_length=4096,
         description="Detailed technical description of the proposed action",
     )
     target_resource: str = Field(
         ...,
         min_length=1,
+        max_length=512,
         description="Target cloud infrastructure, database, or API resource",
     )
     estimated_cost_usd: float = Field(
@@ -177,8 +185,25 @@ class AgentProposal(BaseModel):
     )
     timestamp: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),
+        max_length=64,
         description="ISO 8601 creation timestamp",
     )
+
+    @field_validator("parameters")
+    @classmethod
+    def _validate_parameters_size(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Enforce serialized parameters byte ceiling to prevent payload exhaustion."""
+        try:
+            serialized = json.dumps(
+                value, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("parameters must be JSON-serializable") from exc
+        if len(serialized) > MAX_PROPOSAL_PARAMETERS_BYTES:
+            raise ValueError(
+                f"Serialized parameters exceed maximum size of {MAX_PROPOSAL_PARAMETERS_BYTES} bytes"
+            )
+        return value
 
 
 class Resolution(BaseModel):

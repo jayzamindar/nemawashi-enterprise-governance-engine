@@ -16,7 +16,7 @@
 | `REM-005` | `CRITICAL` | Deterministic Guardrail / Resource Ceiling | `src/nemawashi/agents/base.py`, `src/nemawashi/core/cache.py` | `[x] DONE` |
 | `REM-006` | `CRITICAL` | Crypto/Audit | `src/nemawashi/main.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
 | `REM-007` | `HIGH` | Loop & Self-Healing / Concurrency | `src/nemawashi/core/engine.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
-| `REM-008` | `HIGH` | Resource Ceiling | `src/nemawashi/main.py`, `src/nemawashi/core/models.py`, `src/nemawashi/core/cache.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
+| `REM-008` | `HIGH` | Resource Ceiling | `src/nemawashi/main.py`, `src/nemawashi/core/models.py`, `src/nemawashi/core/cache.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
 | `REM-009` | `HIGH` | CI/CD & Test Safety | `pyproject.toml`, `requirements.txt`, `.github/workflows/ci.yml`, `tests/test_gateway_auth.py` | `[x] DONE` |
 | `REM-010` | `HIGH` | Loop & Self-Healing | `src/nemawashi/agents/arbiter.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
 | `REM-011` | `MEDIUM` | Documentation Drift | `README.md`, `docs/TRD.md`, `docs/IMPLEMENTATION_PLAN.md`, `Dockerfile`, `prompts/` | `[ ] OPEN` |
@@ -198,7 +198,8 @@
   3. Instantiate `FileLock` per operation in `cache.py` and prune expired entries (>24h) + enforce a max-entry cap during `store()`.
   4. Implement ledger rotation/retention quotas (`AUDIT_LOG_MAX_SIZE_MB`, `AUDIT_LOG_MAX_RETENTION_DAYS`) in `ledger.py`.
 - **Verification Criteria:** `pytest` tests verifying HTTP 413 on $>10\text{MB}$ payloads, `ValidationError` on oversized `AgentProposal` parameters, and expired cache entry eviction on `store()`.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Added `ContentSizeLimitMiddleware` (10MB / 10,485,760-byte ceiling with fast-path `Content-Length` and streaming chunk byte counter returning HTTP 413), `/ready` readiness probe, and thread-safe singleton `get_engine()` warmed in `lifespan` in `src/nemawashi/main.py`; bounded `AgentProposal` string fields (`proposing_agent` <= 256, `action_description` <= 4096, `target_resource` <= 512, `timestamp` <= 64) and serialized `parameters` (<= 65,536 bytes) in `src/nemawashi/core/models.py`; replaced shared `self._lock` with per-operation `_acquire_lock()` `FileLock` and added expired (>24h) and `max_entries` eviction in `SemanticProposalCache.store()` (`src/nemawashi/core/cache.py`); implemented `rotate_ledger_if_needed()` and `_prune_expired_rotated_ledgers()` (`AUDIT_LOG_MAX_SIZE_MB=500`, `AUDIT_LOG_MAX_RETENTION_DAYS=30`) inside `FileLock` in `src/nemawashi/audit/ledger.py`; added TDD tests in `tests/test_gateway_auth.py`, `tests/test_cache.py`, and `tests/test_audit_chain.py`.
+- **Status:** `[x] DONE`
 
 ---
 

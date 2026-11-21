@@ -614,3 +614,89 @@ def test_dynamic_env_var_path_overrides(tmp_path, monkeypatch):
 
     expected_cache_file = custom_cache_dir / "semantic_cache.json"
     assert expected_cache_file.exists()
+
+
+def test_gateway_ready_and_singleton_engine(client):
+    """Verify /ready probe returns 200 and get_engine() reuses a singleton instance."""
+    from nemawashi.main import get_engine
+
+    resp = client.get("/ready")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ready"
+    assert get_engine() is get_engine()
+
+
+def test_gateway_rejects_oversized_content_length_with_413(client):
+    """Verify fast-path Content-Length > 10MB returns HTTP 413 Payload Too Large."""
+    from nemawashi.main import MAX_REQUEST_BODY_BYTES
+
+    oversized_body = b"{" + (b"a" * MAX_REQUEST_BODY_BYTES) + b"}"
+    response = client.post(
+        "/resume",
+        content=oversized_body,
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 413
+    assert "exceeds maximum allowed size" in response.json()["detail"]
+
+
+def test_gateway_rejects_streaming_chunk_over_10mb_with_413(client):
+    """Verify streaming chunked body without Content-Length > 10MB returns HTTP 413."""
+    from nemawashi.main import MAX_REQUEST_BODY_BYTES
+
+    def _chunk_stream():
+        chunk = b"x" * (1024 * 1024)
+        for _ in range((MAX_REQUEST_BODY_BYTES // len(chunk)) + 1):
+            yield chunk
+
+    response = client.post(
+        "/resume",
+        content=_chunk_stream(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 413
+    assert "exceeds maximum allowed size" in response.json()["detail"]
+
+
+def test_agent_proposal_rejects_oversized_strings_and_parameters():
+    """Verify AgentProposal bounds string lengths and serialized parameters byte ceiling."""
+    from pydantic import ValidationError
+
+    from nemawashi.core.models import MAX_PROPOSAL_PARAMETERS_BYTES
+
+    with pytest.raises(ValidationError):
+        AgentProposal(
+            proposal_id="p-long-desc",
+            proposing_agent="agent-1",
+            action_type="scale_up",
+            action_description="a" * 4097,
+            target_resource="pool-1",
+        )
+
+    with pytest.raises(ValidationError):
+        AgentProposal(
+            proposal_id="p-long-agent",
+            proposing_agent="a" * 257,
+            action_type="scale_up",
+            action_description="Scale up",
+            target_resource="pool-1",
+        )
+
+    with pytest.raises(ValidationError):
+        AgentProposal(
+            proposal_id="p-long-target",
+            proposing_agent="agent-1",
+            action_type="scale_up",
+            action_description="Scale up",
+            target_resource="r" * 513,
+        )
+
+    with pytest.raises(ValidationError, match="Serialized parameters exceed"):
+        AgentProposal(
+            proposal_id="p-huge-params",
+            proposing_agent="agent-1",
+            action_type="scale_up",
+            action_description="Scale up",
+            target_resource="pool-1",
+            parameters={"blob": "z" * (MAX_PROPOSAL_PARAMETERS_BYTES + 100)},
+        )

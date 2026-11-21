@@ -19,11 +19,13 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, Header, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from nemawashi.core.engine import NemawashiEngine
 from nemawashi.core.models import AgentProposal
@@ -39,9 +41,94 @@ INSECURE_DEFAULT_SECRETS = frozenset(
     }
 )
 MAX_RESUME_TTL_SECONDS = 300
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MiB (10,485,760 bytes)
 
 _NONCE_LOCK = threading.Lock()
 _USED_NONCES: dict[str, float] = {}
+_ENGINE_LOCK = threading.Lock()
+_ENGINE_SINGLETON: NemawashiEngine | None = None
+
+
+class _PayloadTooLargeError(Exception):
+    """Internal signal raised when streaming request body exceeds MAX_REQUEST_BODY_BYTES."""
+
+
+class ContentSizeLimitMiddleware:
+    """ASGI middleware enforcing a strict 10MB incoming request body ceiling (HTTP 413)."""
+
+    def __init__(self, app: ASGIApp, max_bytes: int = MAX_REQUEST_BODY_BYTES) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Fast-path Content-Length header check
+        for header_name, header_value in scope.get("headers", []):
+            if header_name.lower() == b"content-length":
+                try:
+                    content_length = int(header_value.decode("latin-1").strip())
+                except ValueError:
+                    break
+                if content_length > self.max_bytes:
+                    response = JSONResponse(
+                        status_code=413,
+                        content={
+                            "detail": f"Request body exceeds maximum allowed size of {self.max_bytes} bytes"
+                        },
+                    )
+                    await response(scope, receive, send)
+                    return
+                break
+
+        total_bytes = 0
+        exceeded = False
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if exceeded:
+                return
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        async def limited_receive() -> Message:
+            nonlocal total_bytes, exceeded
+            message = await receive()
+            if message["type"] == "http.request":
+                body = message.get("body", b"")
+                total_bytes += len(body)
+                if total_bytes > self.max_bytes:
+                    exceeded = True
+                    raise _PayloadTooLargeError()
+            return message
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except _PayloadTooLargeError:
+            pass
+
+        if exceeded and not response_started:
+            response = JSONResponse(
+                status_code=413,
+                content={
+                    "detail": f"Request body exceeds maximum allowed size of {self.max_bytes} bytes"
+                },
+            )
+            await response(scope, receive, send)
+
+
+def get_engine() -> NemawashiEngine:
+    """Return a process-wide singleton NemawashiEngine instance (thread-safe)."""
+    global _ENGINE_SINGLETON
+    if _ENGINE_SINGLETON is None:
+        with _ENGINE_LOCK:
+            if _ENGINE_SINGLETON is None:
+                _ENGINE_SINGLETON = NemawashiEngine()
+    return _ENGINE_SINGLETON
 
 
 def validate_production_secrets() -> None:
@@ -58,8 +145,9 @@ def validate_production_secrets() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Validate critical security configuration before accepting traffic."""
+    """Validate critical security configuration and warm singleton engine before accepting traffic."""
     validate_production_secrets()
+    get_engine()
     yield
 
 
@@ -73,6 +161,7 @@ app = FastAPI(
     version="1.1.0",
     lifespan=lifespan,
 )
+app.add_middleware(ContentSizeLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
 
 
 class ResumeProposalRequest(BaseModel):
@@ -92,6 +181,7 @@ class ResumeProposalRequest(BaseModel):
     )
     rationale: str = Field(
         default="Operator decision supplied via FastAPI gateway callback",
+        max_length=4096,
         description="Written justification for operator decision",
     )
     issued_at: float = Field(
@@ -134,6 +224,13 @@ class ResumeProposalResponse(BaseModel):
 def health_check() -> dict[str, str]:
     """Liveness probe for the governance engine gateway."""
     return {"status": "healthy", "service": "nemawashi-governance-engine"}
+
+
+@app.get("/ready", tags=["System"])
+def readiness_check() -> dict[str, str]:
+    """Readiness probe verifying the singleton NemawashiEngine is initialized."""
+    _ = get_engine()
+    return {"status": "ready", "service": "nemawashi-governance-engine"}
 
 
 def compute_resume_signature(
@@ -254,8 +351,8 @@ def resume_deliberation(
             )
         _USED_NONCES[request.nonce] = float(request.expires_at)
 
-    # 6. Resume execution through Nemawashi engine
-    engine = NemawashiEngine()
+    # 6. Resume execution through singleton Nemawashi engine
+    engine = get_engine()
     try:
         final_state = engine.resume_proposal(
             proposal_id=request.proposal_id,

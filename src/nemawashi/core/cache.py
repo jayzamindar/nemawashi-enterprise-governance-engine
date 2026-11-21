@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_DIR = Path(os.environ.get("NEMAWASHI_CACHE_DIR", "cache"))
 DEFAULT_CACHE_PATH = DEFAULT_CACHE_DIR / "semantic_cache.json"
+CACHE_TTL_SECONDS = 86400
+MAX_CACHE_ENTRIES = 1000
 
 
 def get_enterprise_rules_hash(rules_path: Path | None = None) -> str:
@@ -114,17 +116,40 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return max(0.0, min(1.0, dot_product))
 
 
+def _is_entry_expired(
+    entry: dict[str, Any], now: datetime, ttl_seconds: int = CACHE_TTL_SECONDS
+) -> bool:
+    """Return True if a cache entry is missing, malformed, or older than ttl_seconds."""
+    cached_at_str = entry.get("cached_at")
+    if not isinstance(cached_at_str, str) or not cached_at_str.strip():
+        return True
+    try:
+        cached_dt = datetime.fromisoformat(cached_at_str)
+    except ValueError:
+        return True
+    if cached_dt.tzinfo is None:
+        cached_dt = cached_dt.replace(tzinfo=UTC)
+    return (now - cached_dt).total_seconds() > ttl_seconds
+
+
 class SemanticProposalCache:
     """Persistent local semantic cache for evaluated proposals with cross-platform mutex locking."""
 
     def __init__(
-        self, cache_path: Path | None = None, similarity_threshold: float = 0.95
+        self,
+        cache_path: Path | None = None,
+        similarity_threshold: float = 0.95,
+        max_entries: int = MAX_CACHE_ENTRIES,
     ):
         self.cache_path = cache_path or DEFAULT_CACHE_PATH
         self.similarity_threshold = similarity_threshold
+        self.max_entries = max(1, max_entries)
         self._entries: list[dict[str, Any]] = []
-        self._lock = FileLock(f"{self.cache_path}.lock", timeout=10)
         self._load()
+
+    def _acquire_lock(self) -> FileLock:
+        """Instantiate a fresh per-operation FileLock for cross-platform mutex safety."""
+        return FileLock(f"{self.cache_path}.lock", timeout=10)
 
     def _read_disk(self) -> None:
         """Internal disk reader executed within an acquired lock."""
@@ -148,12 +173,12 @@ class SemanticProposalCache:
 
     def _load(self) -> None:
         """Load cache entries under mutex lock."""
-        with self._lock:
+        with self._acquire_lock():
             self._read_disk()
 
     def _save(self) -> None:
         """Save cache entries under mutex lock."""
-        with self._lock:
+        with self._acquire_lock():
             self._write_disk()
 
     def _get_embedding_text(self, proposal: AgentProposal) -> str:
@@ -165,7 +190,7 @@ class SemanticProposalCache:
         Validates 24-hour TTL and enterprise rules hash matching before accepting match.
         Restores full StructuredAgentVote lineage to prevent consensus amnesia.
         """
-        with self._lock:
+        with self._acquire_lock():
             self._read_disk()
             query_text = self._get_embedding_text(proposal)
             query_vec = compute_text_embedding(query_text)
@@ -173,6 +198,7 @@ class SemanticProposalCache:
             best_match: CacheMatch | None = None
             highest_sim = 0.0
             current_rules_hash = get_enterprise_rules_hash()
+            now = datetime.now(UTC)
 
             for entry in self._entries:
                 # 1. Action type compatibility
@@ -180,14 +206,8 @@ class SemanticProposalCache:
                     continue
 
                 # 2. Invalidation Check: 24-Hour TTL (TRD-3.2)
-                cached_at_str = entry.get("cached_at")
-                if cached_at_str:
-                    try:
-                        cached_dt = datetime.fromisoformat(cached_at_str)
-                        if (datetime.now(UTC) - cached_dt).total_seconds() > 86400:
-                            continue
-                    except ValueError:
-                        continue
+                if entry.get("cached_at") and _is_entry_expired(entry, now):
+                    continue
 
                 # 3. Invalidation Check: Rules Hash Matching (TRD-3.2)
                 entry_rules_hash = entry.get("rules_hash")
@@ -239,16 +259,28 @@ class SemanticProposalCache:
         stakeholder_votes: dict[str, Any] | None = None,
         deliberation_round: int = 1,
     ) -> None:
-        """Persist a newly deliberated proposal resolution into the semantic cache with full vote lineage."""
+        """Persist a newly deliberated proposal resolution into the semantic cache with full vote lineage.
+
+        Prunes expired (>24h) entries and enforces max_entries ceiling on every store().
+        """
         embedding_text = self._get_embedding_text(proposal)
         vec = compute_text_embedding(embedding_text)
 
-        with self._lock:
+        with self._acquire_lock():
             self._read_disk()
+
+            now = datetime.now(UTC)
+            before_count = len(self._entries)
+            self._entries = [
+                entry for entry in self._entries if not _is_entry_expired(entry, now)
+            ]
+            pruned_expired = len(self._entries) != before_count
 
             # Do not store duplicate identical proposal IDs
             for entry in self._entries:
                 if entry.get("proposal_id") == proposal.proposal_id:
+                    if pruned_expired:
+                        self._write_disk()
                     return
 
             # Normalize serialized votes map for lineage retention
@@ -269,16 +301,18 @@ class SemanticProposalCache:
                 "resolution": resolution.model_dump(),
                 "stakeholder_votes": serialized_votes,
                 "deliberation_round": deliberation_round,
-                "cached_at": datetime.now(UTC).isoformat(),
+                "cached_at": now.isoformat(),
                 "rules_hash": get_enterprise_rules_hash(),
             }
 
             self._entries.append(new_entry)
+            if len(self._entries) > self.max_entries:
+                self._entries = self._entries[-self.max_entries :]
             self._write_disk()
 
     def clear(self) -> None:
         """Purge all cached entries safely using mutex lock."""
-        with self._lock:
+        with self._acquire_lock():
             self._entries = []
             if self.cache_path.exists():
                 try:

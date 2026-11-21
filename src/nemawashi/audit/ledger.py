@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,84 @@ logger = logging.getLogger(__name__)
 _DEFAULT_LEDGER_PATH = Path("audit_logs") / "nemawashi_ledger.jsonl"
 DEFAULT_LEDGER_PATH = _DEFAULT_LEDGER_PATH
 GENESIS_HASH = "0" * 64
+DEFAULT_AUDIT_LOG_MAX_SIZE_MB = 500
+DEFAULT_AUDIT_LOG_MAX_RETENTION_DAYS = 30
+
+
+def get_audit_log_max_size_bytes() -> int:
+    """Resolve max ledger file size in bytes from AUDIT_LOG_MAX_SIZE_MB (default 500MB)."""
+    raw = os.getenv("AUDIT_LOG_MAX_SIZE_MB", str(DEFAULT_AUDIT_LOG_MAX_SIZE_MB))
+    try:
+        mb = float(raw)
+    except ValueError:
+        mb = float(DEFAULT_AUDIT_LOG_MAX_SIZE_MB)
+    if mb <= 0:
+        return 0
+    return max(1, int(mb * 1024 * 1024))
+
+
+def get_audit_log_max_retention_days() -> int:
+    """Resolve max rotated ledger retention in days from AUDIT_LOG_MAX_RETENTION_DAYS (default 30)."""
+    raw = os.getenv(
+        "AUDIT_LOG_MAX_RETENTION_DAYS", str(DEFAULT_AUDIT_LOG_MAX_RETENTION_DAYS)
+    )
+    try:
+        days = int(raw)
+    except ValueError:
+        days = DEFAULT_AUDIT_LOG_MAX_RETENTION_DAYS
+    return max(0, days)
+
+
+def _prune_expired_rotated_ledgers(
+    target_path: Path, max_retention_days: int
+) -> list[Path]:
+    """Delete rotated ledger archive files older than max_retention_days."""
+    if max_retention_days <= 0 or not target_path.parent.exists():
+        return []
+    cutoff_epoch = time.time() - (max_retention_days * 86400)
+    pattern = f"{target_path.stem}.*{target_path.suffix}"
+    pruned: list[Path] = []
+    for candidate in target_path.parent.glob(pattern):
+        if candidate.name == target_path.name or not candidate.is_file():
+            continue
+        try:
+            if candidate.stat().st_mtime < cutoff_epoch:
+                candidate.unlink(missing_ok=True)
+                pruned.append(candidate)
+        except OSError as exc:
+            logger.warning("Failed to prune rotated ledger %s: %s", candidate, exc)
+    return pruned
+
+
+def rotate_ledger_if_needed(
+    target_path: Path,
+    max_size_bytes: int | None = None,
+    max_retention_days: int | None = None,
+) -> Path | None:
+    """Rotate active JSONL ledger when size >= max_size_bytes and prune expired archives."""
+    size_limit = (
+        get_audit_log_max_size_bytes() if max_size_bytes is None else max_size_bytes
+    )
+    retention_days = (
+        get_audit_log_max_retention_days()
+        if max_retention_days is None
+        else max_retention_days
+    )
+
+    rotated_path: Path | None = None
+    if size_limit > 0 and target_path.exists():
+        try:
+            if target_path.stat().st_size >= size_limit:
+                ts_slug = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+                rotated_path = target_path.with_name(
+                    f"{target_path.stem}.{ts_slug}{target_path.suffix}"
+                )
+                target_path.replace(rotated_path)
+        except OSError as exc:
+            logger.warning("Failed to rotate ledger %s: %s", target_path, exc)
+
+    _prune_expired_rotated_ledgers(target_path, retention_days)
+    return rotated_path
 
 
 def get_ledger_path(ledger_path: Path | None = None) -> Path:
@@ -198,10 +277,11 @@ def commit_chained_audit_ledger_node(
         canonical_json(human_approval.model_dump()) if human_approval else "null"
     )
 
-    # Mutex Locking: acquire cross-platform filelock before reading parent hash or writing block
+    # Mutex Locking: acquire cross-platform filelock before rotating, reading parent hash, or writing block
     lock_file = f"{target_path}.lock"
     try:
         with FileLock(lock_file, timeout=10):
+            rotate_ledger_if_needed(target_path)
             # Query cryptographic parent hash inside lock
             last_index, previous_hash = get_latest_ledger_hash(target_path)
             new_index = last_index + 1

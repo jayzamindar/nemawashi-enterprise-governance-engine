@@ -7,11 +7,12 @@ from nemawashi.core.models import (
     MODEL_PRICING_GRID,
     AgentProposal,
     AuditRecord,
-    ModelPricing,
+    HumanApprovalRecord,
     Resolution,
     StructuredAgentVote,
     UsageMetadata,
 )
+from nemawashi.main import ResumeProposalRequest
 
 
 def test_structured_agent_vote_valid():
@@ -118,8 +119,11 @@ def test_audit_record_validation():
         verdict="UNANIMOUS_CONSENSUS",
         execution_permitted=True,
         composite_risk_score=10,
-        stakeholder_votes={"security": {"vote": "APPROVE"}},
+        stakeholder_votes={
+            "security": StructuredAgentVote(stakeholder_id="security", vote="APPROVE")
+        },
         mitigations=[],
+        human_approval=HumanApprovalRecord(approved=True, rationale="Reviewed"),
         deliberation_round=1,
         prompt_tokens=250,
         completion_tokens=50,
@@ -157,3 +161,93 @@ def test_structured_agent_vote_frozen():
     with pytest.raises(ValidationError):
         vote.vote = "REJECT"  # type: ignore
 
+
+def test_agent_proposal_strict_contracts():
+    """Verify AgentProposal forbids extra fields, mutations, invalid proposal_id, and unallowlisted action_type."""
+    with pytest.raises(ValidationError):
+        AgentProposal(
+            proposal_id="prop-123",
+            proposing_agent="agent-worker",
+            action_type="scale_cluster",
+            action_description="Scale worker nodes",
+            target_resource="k8s-worker-pool",
+            extra_field="forbidden",  # type: ignore
+        )
+
+    for bad_id in ["../evil_path", "prop/123", "prop 123", "", "a" * 129]:
+        with pytest.raises(ValidationError):
+            AgentProposal(
+                proposal_id=bad_id,
+                proposing_agent="agent-worker",
+                action_type="scale_cluster",
+                action_description="Scale worker nodes",
+                target_resource="k8s-worker-pool",
+            )
+
+    with pytest.raises(ValidationError):
+        AgentProposal(
+            proposal_id="prop-123",
+            proposing_agent="agent-worker",
+            action_type="arbitrary_unlisted_action",  # type: ignore
+            action_description="Run arbitrary shell",
+            target_resource="k8s-worker-pool",
+        )
+
+    proposal = AgentProposal(
+        proposal_id="prop-123",
+        proposing_agent="agent-worker",
+        action_type="scale_cluster",
+        action_description="Scale worker nodes",
+        target_resource="k8s-worker-pool",
+    )
+    with pytest.raises(ValidationError):
+        proposal.estimated_cost_usd = 999.0  # type: ignore
+
+
+def test_usage_resolution_audit_and_resume_strict_contracts():
+    """Verify UsageMetadata, Resolution, AuditRecord, and ResumeProposalRequest are frozen and forbid extras."""
+    with pytest.raises(ValidationError):
+        UsageMetadata(prompt_tokens=10, extra_field=1)  # type: ignore
+
+    with pytest.raises(ValidationError):
+        Resolution(
+            proposal_id="prop-123",
+            verdict="UNANIMOUS_CONSENSUS",
+            composite_risk_score=10,
+            summary="Approved",
+            extra_field="bad",  # type: ignore
+        )
+
+    resolution = Resolution(
+        proposal_id="prop-123",
+        verdict="UNANIMOUS_CONSENSUS",
+        composite_risk_score=10,
+        summary="Approved",
+    )
+    with pytest.raises(ValidationError):
+        resolution.summary = "Mutated"  # type: ignore
+
+    record = AuditRecord(
+        index=0,
+        timestamp="2026-11-08T00:00:00Z",
+        proposal_id="p-001",
+        action_type="deploy",
+        verdict="UNANIMOUS_CONSENSUS",
+        execution_permitted=True,
+        composite_risk_score=10,
+        previous_hash="0" * 64,
+        record_hash="abc123hash",
+    )
+    with pytest.raises(ValidationError):
+        record.verdict = "CONSENSUS_VETO"  # type: ignore
+
+    with pytest.raises(ValidationError):
+        ResumeProposalRequest(
+            proposal_id="prop-123",
+            approved=True,
+            extra_field="bad",  # type: ignore
+        )
+
+    req = ResumeProposalRequest(proposal_id="prop-123", approved=True)
+    with pytest.raises(ValidationError):
+        req.approved = False  # type: ignore

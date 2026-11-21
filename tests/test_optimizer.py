@@ -1,5 +1,8 @@
 """Tests for Adaptive Cost Optimization Agent (MEP-3.2)."""
 
+import pytest
+from pydantic import ValidationError
+
 from nemawashi.agents.optimizer import CostOptimizationAgent
 from nemawashi.core.models import AgentProposal, StructuredAgentVote
 
@@ -78,7 +81,10 @@ def test_optimizer_preserves_original_proposal():
 
     optimized = optimizer.optimize(proposal)
 
-    # Original proposal must remain untouched
+    # Original proposal must remain untouched and frozen
+    assert optimized is not proposal
     assert proposal.estimated_cost_usd == original_cost
     assert optimized.estimated_cost_usd < original_cost
     assert proposal.proposal_id == optimized.proposal_id
+    with pytest.raises(ValidationError):
+        proposal.estimated_cost_usd = 1.0  # type: ignore

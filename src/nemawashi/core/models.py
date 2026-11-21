@@ -4,8 +4,9 @@ Enforces strict structured memory contracts to prevent context dilution,
 persona drift, and unconstrained token consumption, with real-time FinOps token observability.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from datetime import UTC, datetime
+from typing import Any, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -26,11 +27,11 @@ class StructuredAgentVote(BaseModel):
         ...,
         description="Explicit structured verdict: APPROVE, REJECT, or MITIGATE.",
     )
-    risk_tags: List[str] = Field(
+    risk_tags: list[str] = Field(
         default_factory=list,
         description="Categorical tags identifying concrete risk vectors (e.g. ['privilege-escalation', 'data-exfiltration']).",
     )
-    mitigation_requirements: List[str] = Field(
+    mitigation_requirements: list[str] = Field(
         default_factory=list,
         description="Exact technical guardrails or constraints required for conditional execution.",
     )
@@ -39,7 +40,7 @@ class StructuredAgentVote(BaseModel):
 class UsageMetadata(BaseModel):
     """Token consumption and financial cost metadata for an agent turn."""
 
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     prompt_tokens: int = Field(default=0, ge=0, description="Input tokens consumed")
     completion_tokens: int = Field(
@@ -71,7 +72,7 @@ class ModelPricing(BaseModel):
 
 
 # Gemini Model Pricing Grid (Default Gemini 2.5 Flash / Pro tier)
-MODEL_PRICING_GRID: Dict[str, ModelPricing] = {
+MODEL_PRICING_GRID: dict[str, ModelPricing] = {
     "gemini-2.5-flash": ModelPricing(
         input_cost_per_million=0.075, output_cost_per_million=0.30
     ),
@@ -84,21 +85,76 @@ MODEL_PRICING_GRID: Dict[str, ModelPricing] = {
 }
 
 
+ActionType = Literal[
+    "api_gateway_deploy",
+    "cache_cluster_scale",
+    "cluster_provision",
+    "compute_cluster_expansion",
+    "ddl_migration",
+    "delete_backup",
+    "delete_root_iam_credentials",
+    "deploy",
+    "deploy_app",
+    "disable_cloudtrail_logging",
+    "drop_production_database",
+    "escalate",
+    "gpu_cluster",
+    "iam_role_elevation",
+    "iterative_action",
+    "modify_security_group_allow_all_ingress_0_0_0_0",
+    "nodes_add",
+    "open_firewall",
+    "open_firewall_rule",
+    "process_patient_records",
+    "provision_env",
+    "provision_expensive_fleet",
+    "provision_gpu_cluster",
+    "provision_gpu_fleet",
+    "provision_gpus",
+    "provision_nodes",
+    "restart_node",
+    "restart_service",
+    "scale",
+    "scale_cache",
+    "scale_cluster",
+    "scale_down",
+    "scale_up",
+    "schema_migration_ddl",
+    "terminate_payment_gateway_cluster",
+]
+
+
+class HumanApprovalRecord(BaseModel):
+    """Frozen operator decision record for HITL-escalated proposals."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    approved: bool = Field(
+        ..., description="Operator decision: True to authorize, False to veto"
+    )
+    rationale: str = Field(
+        default="", description="Written justification for operator decision"
+    )
+
+
 class AgentProposal(BaseModel):
     """Proposal submitted by an operational agent requesting execution permission."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     proposal_id: str = Field(
-        ..., min_length=1, description="Unique UUID or identifier for the proposal"
+        ...,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9_-]{1,128}$",
+        description="Unique UUID or identifier for the proposal",
     )
     proposing_agent: str = Field(
         ..., min_length=1, description="Agent name or service initiating the request"
     )
-    action_type: str = Field(
+    action_type: ActionType = Field(
         ...,
-        min_length=1,
-        description="Action classification (e.g., 'database_migration', 'iam_policy_update')",
+        description="Validated action classification allowlist",
     )
     action_description: str = Field(
         ...,
@@ -116,11 +172,11 @@ class AgentProposal(BaseModel):
     estimated_blast_radius: int = Field(
         default=0, ge=0, le=100, description="Estimated blast radius score (0-100)"
     )
-    parameters: Dict[str, Any] = Field(
+    parameters: dict[str, Any] = Field(
         default_factory=dict, description="Execution parameters or payload dictionary"
     )
     timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        default_factory=lambda: datetime.now(UTC).isoformat(),
         description="ISO 8601 creation timestamp",
     )
 
@@ -128,7 +184,7 @@ class AgentProposal(BaseModel):
 class Resolution(BaseModel):
     """Consensus resolution synthesized by the Consensus Arbiter."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     proposal_id: str = Field(
         ..., min_length=1, description="Associated proposal identifier"
@@ -145,7 +201,7 @@ class Resolution(BaseModel):
         le=100,
         description="Aggregate risk score normalized across all stakeholders (0-100)",
     )
-    mandatory_mitigations: List[str] = Field(
+    mandatory_mitigations: list[str] = Field(
         default_factory=list,
         description="Deduplicated list of mandatory mitigations required prior to execution",
     )
@@ -167,7 +223,7 @@ class Resolution(BaseModel):
 class AuditRecord(BaseModel):
     """Cryptographically chained ledger record entry."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     index: int = Field(..., ge=0, description="Monotonically increasing block index")
     timestamp: str = Field(
@@ -182,14 +238,14 @@ class AuditRecord(BaseModel):
     composite_risk_score: int = Field(
         ..., ge=0, le=100, description="Final composite risk score"
     )
-    stakeholder_votes: Dict[str, Dict[str, Any]] = Field(
+    stakeholder_votes: dict[str, StructuredAgentVote] = Field(
         default_factory=dict,
         description="Serialized StructuredAgentVote map for all stakeholders",
     )
-    mitigations: List[str] = Field(
+    mitigations: list[str] = Field(
         default_factory=list, description="Enforced mitigations"
     )
-    human_approval: Optional[Dict[str, Any]] = Field(
+    human_approval: HumanApprovalRecord | None = Field(
         default=None,
         description="Operator decision and rationale if human-in-the-loop was triggered",
     )

@@ -6,25 +6,22 @@ Provides:
    mitigation loop watchdog, and cryptographically chained audit logging.
 """
 
-from datetime import datetime, timezone
 import hashlib
 import hmac
 import os
-from pathlib import Path
 import sys
-from typing import Any, Dict, Optional
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import box
 
 from nemawashi.core.engine import NemawashiEngine
 from nemawashi.core.models import AgentProposal
-from nemawashi.audit.ledger import verify_ledger_chain
 
 console = Console()
 
@@ -42,6 +39,8 @@ app = FastAPI(
 class ResumeProposalRequest(BaseModel):
     """Payload submitted to /resume to complete suspended HITL escalation."""
 
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     proposal_id: str = Field(
         ...,
         min_length=1,
@@ -56,7 +55,7 @@ class ResumeProposalRequest(BaseModel):
         default="Operator decision supplied via FastAPI gateway callback",
         description="Written justification for operator decision",
     )
-    auth_token: Optional[str] = Field(
+    auth_token: str | None = Field(
         default=None,
         description="Cryptographic HMAC or callback authorization token",
     )
@@ -68,10 +67,10 @@ class ResumeProposalResponse(BaseModel):
     status: str
     proposal_id: str
     execution_permitted: bool
-    human_approved: Optional[bool]
+    human_approved: bool | None
     verdict: str
     composite_risk_score: int
-    audit_record_hash: Optional[str]
+    audit_record_hash: str | None
     audit_committed: bool
     prompt_tokens: int
     completion_tokens: int
@@ -80,7 +79,7 @@ class ResumeProposalResponse(BaseModel):
 
 
 @app.get("/health", tags=["System"])
-def health_check() -> Dict[str, str]:
+def health_check() -> dict[str, str]:
     """Liveness probe for the governance engine gateway."""
     return {"status": "healthy", "service": "nemawashi-governance-engine"}
 
@@ -108,7 +107,9 @@ def compute_resume_signature(
 )
 def resume_deliberation(
     request: ResumeProposalRequest,
-    x_nemawashi_signature: Optional[str] = Header(default=None, alias="X-Nemawashi-Signature"),
+    x_nemawashi_signature: str | None = Header(
+        default=None, alias="X-Nemawashi-Signature"
+    ),
 ) -> ResumeProposalResponse:
     """External callback endpoint for resuming suspended human-in-the-loop deliberations.
 
@@ -125,9 +126,7 @@ def resume_deliberation(
 
     # 1. Extract signature from header or body
     sig_from_header = (
-        x_nemawashi_signature
-        if isinstance(x_nemawashi_signature, str)
-        else None
+        x_nemawashi_signature if isinstance(x_nemawashi_signature, str) else None
     )
     raw_sig = sig_from_header or request.auth_token
     if not raw_sig or not isinstance(raw_sig, str):
@@ -171,12 +170,12 @@ def resume_deliberation(
     except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid proposal data: {str(err)}",
+            detail=f"Invalid proposal data: {err!s}",
         ) from err
     except Exception as err:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to resume proposal '{request.proposal_id}': {str(err)}",
+            detail=f"Failed to resume proposal '{request.proposal_id}': {err!s}",
         ) from err
 
     res = final_state.get("resolution")
@@ -195,7 +194,7 @@ def resume_deliberation(
         prompt_tokens=final_state.get("prompt_tokens", 0),
         completion_tokens=final_state.get("completion_tokens", 0),
         total_cost_usd=final_state.get("total_cost_usd", 0.0),
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
     )
 
 

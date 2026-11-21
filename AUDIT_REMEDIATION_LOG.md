@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | `REM-001` | `CRITICAL` | Missing Blueprint | `Enterprise_Blueprint.md` | `[x] DONE` |
 | `REM-002` | `HIGH` | Reference Port | `GEMINI.md` | `[x] DONE` |
-| `REM-003` | `CRITICAL` | Pydantic | `src/nemawashi/core/models.py`, `src/nemawashi/main.py`, `src/nemawashi/agents/optimizer.py` | `[ ] OPEN` |
+| `REM-003` | `CRITICAL` | Pydantic | `src/nemawashi/core/models.py`, `src/nemawashi/main.py`, `src/nemawashi/agents/optimizer.py` | `[x] DONE` |
 | `REM-004` | `CRITICAL` | Deterministic Guardrail | `src/nemawashi/policies/policy_engine.py`, `src/nemawashi/policies/enterprise_rules.json` | `[ ] OPEN` |
 | `REM-005` | `CRITICAL` | Deterministic Guardrail / Resource Ceiling | `src/nemawashi/agents/base.py`, `src/nemawashi/core/cache.py` | `[ ] OPEN` |
 | `REM-006` | `CRITICAL` | Crypto/Audit | `src/nemawashi/main.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
@@ -78,7 +78,8 @@
   4. Update `CostOptimizationAgent.optimize` (`optimizer.py`) to return `proposal.model_copy(update={...})` instead of mutating fields in place.
   5. Type `AuditRecord.stakeholder_votes` as `Dict[str, StructuredAgentVote]` (or a dedicated frozen `HumanApprovalRecord` model for `human_approval`).
 - **Verification Criteria:** Run `pytest tests/test_models.py tests/test_optimizer.py -v` plus new negative tests asserting `ValidationError` on extra fields, mutation attempts, and invalid `proposal_id` patterns.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Enforced `ConfigDict(extra="forbid", frozen=True)` on `UsageMetadata`, `AgentProposal`, `Resolution`, `AuditRecord`, and `ResumeProposalRequest`; added `proposal_id` regex (`^[a-zA-Z0-9_-]{1,128}$`) and `ActionType` allowlist on `AgentProposal`; replaced in-place mutation in `CostOptimizationAgent.optimize` with `model_copy(update={...})`; typed `AuditRecord.stakeholder_votes` as `dict[str, StructuredAgentVote]` and `AuditRecord.human_approval` as `HumanApprovalRecord | None`; added negative TDD tests in `tests/test_models.py`, `tests/test_optimizer.py`, and `tests/test_gateway_auth.py`.
+- **Status:** `[x] DONE`
 
 ---
 

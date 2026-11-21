@@ -1,7 +1,8 @@
 """Tests for Mandatory HMAC-SHA256 Gateway Callback Authentication (TRD-5.2)."""
 
 import json
-from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -84,7 +85,9 @@ def test_gateway_missing_signature_returns_401(client, hitl_environment):
     assert "Missing HMAC-SHA256 callback signature" in response.json()["detail"]
 
 
-def test_gateway_unset_webhook_secret_returns_500(client, hitl_environment, monkeypatch):
+def test_gateway_unset_webhook_secret_returns_500(
+    client, hitl_environment, monkeypatch
+):
     """Verify fail-closed architecture when NEMAWASHI_WEBHOOK_SECRET is unset in runtime."""
     monkeypatch.delenv("NEMAWASHI_WEBHOOK_SECRET", raising=False)
     payload = {
@@ -98,14 +101,18 @@ def test_gateway_unset_webhook_secret_returns_500(client, hitl_environment, monk
     assert "NEMAWASHI_WEBHOOK_SECRET not configured" in response.json()["detail"]
 
 
-def test_gateway_invalid_signature_returns_401_and_preserves_state(client, hitl_environment):
+def test_gateway_invalid_signature_returns_401_and_preserves_state(
+    client, hitl_environment
+):
     """Verify that tampered/invalid signature returns 401 and does NOT mutate or resume state."""
     payload = {
         "proposal_id": hitl_environment["proposal_id"],
         "approved": True,
         "rationale": "Tampered signature attempt",
     }
-    headers = {"X-Nemawashi-Signature": "sha256=deadbeefcafebabebadhex00112233445566778899aabbccddeeff"}
+    headers = {
+        "X-Nemawashi-Signature": "sha256=deadbeefcafebabebadhex00112233445566778899aabbccddeeff"
+    }
     response = client.post("/resume", json=payload, headers=headers)
     assert response.status_code == 401
     assert "Invalid HMAC-SHA256 callback signature" in response.json()["detail"]
@@ -197,7 +204,9 @@ def test_gateway_malformed_signature_headers_return_401(client, hitl_environment
     ]
 
     for header in malformed_headers:
-        response = client.post("/resume", json=payload, headers={"X-Nemawashi-Signature": header})
+        response = client.post(
+            "/resume", json=payload, headers={"X-Nemawashi-Signature": header}
+        )
         assert response.status_code == 401
         assert "Invalid HMAC-SHA256 callback signature" in response.json()["detail"]
 
@@ -221,15 +230,19 @@ def test_suspended_state_path_traversal_and_hmac_tampering(hitl_environment):
     with pytest.raises(ValueError, match="Invalid proposal_id"):
         validate_proposal_id("../evil_path")
 
-    malicious_proposal = AgentProposal(
-        proposal_id="../evil_path",
-        proposing_agent="agent-attacker",
-        action_type="escalate",
-        action_description="path traversal exploit",
-        target_resource="secrets",
-    )
+    # AgentProposal model boundary rejects path traversal proposal_id
+    with pytest.raises(ValueError):
+        AgentProposal(
+            proposal_id="../evil_path",
+            proposing_agent="agent-attacker",
+            action_type="escalate",
+            action_description="path traversal exploit",
+            target_resource="secrets",
+        )
+
+    # Defense-in-depth: save_suspended_state also rejects raw object path traversal
     with pytest.raises(ValueError, match="Invalid proposal_id"):
-        save_suspended_state({"proposal": malicious_proposal})
+        save_suspended_state({"proposal": SimpleNamespace(proposal_id="../evil_path")})
 
     with pytest.raises(ValueError, match="Invalid proposal_id"):
         load_suspended_state("../evil_path")
@@ -258,5 +271,6 @@ def test_suspended_state_path_traversal_and_hmac_tampering(hitl_environment):
 def test_prompt_traversal_guard():
     """Verify BaseGovernanceAgent blocks directory traversal in prompt file paths."""
     with pytest.raises(ValueError, match="Path traversal detected"):
-        BaseGovernanceAgent(stakeholder_id="adversarial", prompt_file="../../secret.txt")
-
+        BaseGovernanceAgent(
+            stakeholder_id="adversarial", prompt_file="../../secret.txt"
+        )

@@ -3,7 +3,6 @@
 Synthesizes structured votes from all stakeholders into an authoritative Resolution.
 """
 
-from typing import Dict, List, Optional
 from nemawashi.core.models import AgentProposal, Resolution, StructuredAgentVote
 
 
@@ -13,7 +12,7 @@ class ConsensusArbiterAgent:
     def synthesize(
         self,
         proposal: AgentProposal,
-        votes: Dict[str, StructuredAgentVote],
+        votes: dict[str, StructuredAgentVote],
         current_round: int = 1,
         max_rounds: int = 3,
         requires_revision: bool = False,
@@ -34,11 +33,11 @@ class ConsensusArbiterAgent:
             )
 
         # 2. Collect and deduplicate mitigations and risk tags
-        all_mitigations: List[str] = []
-        all_risk_tags: List[str] = []
+        all_mitigations: list[str] = []
+        all_risk_tags: list[str] = []
         mitigate_count = 0
 
-        for sid, v in votes.items():
+        for v in votes.values():
             if v.vote == "MITIGATE":
                 mitigate_count += 1
             for m in v.mitigation_requirements:
@@ -81,6 +80,14 @@ class ConsensusArbiterAgent:
 
         # 5. Conditional Alignment (Mitigations required)
         if mitigate_count > 0:
+            has_revision_condition = (
+                requires_revision
+                or mitigate_count >= 3
+                or len(all_mitigations) >= 4
+                or composite_risk >= 65
+                or any("revision" in t or "conflict" in t for t in all_risk_tags)
+            )
+            should_revise = current_round < max_rounds and has_revision_condition
             summary = (
                 f"Conditional Alignment: Consensus reached subject to {len(all_mitigations)} "
                 f"mandatory safety constraints across {mitigate_count} stakeholders."
@@ -91,7 +98,7 @@ class ConsensusArbiterAgent:
                 composite_risk_score=composite_risk,
                 mandatory_mitigations=all_mitigations,
                 requires_human_approval=False,
-                requires_revision=requires_revision,
+                requires_revision=should_revise,
                 summary=summary,
             )
 

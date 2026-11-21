@@ -152,6 +152,7 @@ def calculate_record_hash(
     human_approval_json: str,
     round_num: int,
     total_cost_usd: float = 0.0,
+    vote_history_json: str | None = None,
 ) -> str:
     """Compute deterministic SHA-256 hash for a ledger record block."""
     payload = (
@@ -159,6 +160,8 @@ def calculate_record_hash(
         f"{str(execution_permitted).lower()}:{composite_risk_score}:"
         f"{serialized_votes}:{mitigations_json}:{human_approval_json}:{round_num}:{total_cost_usd:.6f}"
     )
+    if vote_history_json is not None:
+        payload = f"{payload}:{vote_history_json}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -266,6 +269,22 @@ def commit_chained_audit_ledger_node(
     serialized_votes_str = canonical_json(serialized_votes_map)
     mitigations_json = canonical_json(sorted(mitigations))
 
+    # Preserve full chronological multi-round vote lineage from state["votes"]
+    raw_vote_history = state.get("votes", [])
+    validated_vote_history: list[StructuredAgentVote] = []
+    serialized_vote_history: list[dict[str, Any]] = []
+    for item in raw_vote_history:
+        if isinstance(item, StructuredAgentVote):
+            validated_vote_history.append(item)
+            serialized_vote_history.append(item.model_dump())
+        elif isinstance(item, dict):
+            validated_item = StructuredAgentVote.model_validate(item)
+            validated_vote_history.append(validated_item)
+            serialized_vote_history.append(validated_item.model_dump())
+    vote_history_json = (
+        canonical_json(serialized_vote_history) if serialized_vote_history else None
+    )
+
     # Human sign-off payload
     human_approval: HumanApprovalRecord | None = None
     if state.get("human_approved") is not None:
@@ -304,6 +323,7 @@ def commit_chained_audit_ledger_node(
                 human_approval_json=human_approval_json,
                 round_num=deliberation_round,
                 total_cost_usd=total_cost_usd,
+                vote_history_json=vote_history_json,
             )
 
             audit_entry = AuditRecord(
@@ -315,6 +335,7 @@ def commit_chained_audit_ledger_node(
                 execution_permitted=execution_permitted,
                 composite_risk_score=composite_risk,
                 stakeholder_votes=validated_votes_map,
+                vote_history=validated_vote_history,
                 mitigations=mitigations,
                 human_approval=human_approval,
                 deliberation_round=deliberation_round,
@@ -412,6 +433,10 @@ def verify_ledger_chain(ledger_path: Path | None = None) -> tuple[bool, str]:
                         sorted(record.get("mitigations", []))
                     )
                     cost = float(record.get("total_cost_usd", 0.0))
+                    raw_vote_history = record.get("vote_history") or []
+                    vote_history_json = (
+                        canonical_json(raw_vote_history) if raw_vote_history else None
+                    )
 
                     recomputed = calculate_record_hash(
                         index=idx,
@@ -426,6 +451,7 @@ def verify_ledger_chain(ledger_path: Path | None = None) -> tuple[bool, str]:
                         human_approval_json=human_approval_json,
                         round_num=record.get("deliberation_round", 1),
                         total_cost_usd=cost,
+                        vote_history_json=vote_history_json,
                     )
 
                     if recomputed != rec_hash:

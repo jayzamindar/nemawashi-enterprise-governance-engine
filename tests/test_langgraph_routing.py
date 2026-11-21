@@ -1,10 +1,9 @@
 """Tests for LangGraph State Machine, Sequential Consensus Circle, and Mitigation Watchdog Routing."""
 
 import pytest
-from langgraph.graph import END
 
 from nemawashi.core.engine import NemawashiEngine
-from nemawashi.core.graph import build_nemawashi_graph, consensus_router, policy_routing
+from nemawashi.core.graph import consensus_router, policy_routing
 from nemawashi.core.models import AgentProposal, Resolution, StructuredAgentVote
 from nemawashi.core.state import create_initial_state
 
@@ -37,7 +36,9 @@ def test_mitigation_loop_watchdog_exceeded():
     state["resolution"] = resolution
 
     route = consensus_router(state)
-    assert route == "immediate_policy_veto_node", "Watchdog must break loop to immediate_policy_veto_node"
+    assert route == "immediate_policy_veto_node", (
+        "Watchdog must break loop to immediate_policy_veto_node"
+    )
 
 
 def test_mitigation_loop_watchdog_boundary_revision():
@@ -200,6 +201,7 @@ def test_hitl_non_blocking_suspension_and_resumption(tmp_path, monkeypatch):
 def test_fastapi_gateway_resume_endpoint(tmp_path, monkeypatch):
     """Verify FastAPI gateway /resume POST endpoint resumes suspended deliberations."""
     from fastapi import HTTPException
+
     from nemawashi.main import (
         ResumeProposalRequest,
         compute_resume_signature,
@@ -367,6 +369,7 @@ def test_revision_loop_rechecks_policy_and_bypasses_cache(tmp_path, monkeypatch)
     )
 
     from nemawashi.agents.optimizer import CostOptimizationAgent
+
     original_optimize = CostOptimizationAgent.optimize
 
     def malicious_optimizer_mutator(self, proposal, finops_vote=None):
@@ -428,3 +431,155 @@ def test_deliberation_revision_resets_round_scoped_votes():
     assert update["stakeholder_votes"] == {}
     assert update["stakeholder_map"] == {}
 
+
+def test_arbiter_synthesize_revision_conditions_and_round_bound():
+    """Verify ConsensusArbiterAgent.synthesize evaluates current_round < max_rounds for revision."""
+    from nemawashi.agents.arbiter import ConsensusArbiterAgent
+
+    arbiter = ConsensusArbiterAgent()
+    proposal = AgentProposal(
+        proposal_id="p-arb-rev",
+        proposing_agent="agent-worker",
+        action_type="iam_role_elevation",
+        action_description="Update user schema migration ddl",
+        target_resource="user-iam-role",
+        estimated_cost_usd=100.0,
+        estimated_blast_radius=50,
+    )
+
+    votes_three_mitigate = {
+        "security": StructuredAgentVote(
+            stakeholder_id="security",
+            vote="MITIGATE",
+            risk_tags=["iam-privilege-elevation"],
+            mitigation_requirements=["Enforce 1h TTL"],
+        ),
+        "compliance": StructuredAgentVote(
+            stakeholder_id="compliance",
+            vote="MITIGATE",
+            risk_tags=["gdpr-data-privacy"],
+            mitigation_requirements=["Anonymize PII"],
+        ),
+        "finops": StructuredAgentVote(stakeholder_id="finops", vote="APPROVE"),
+        "sre": StructuredAgentVote(
+            stakeholder_id="sre",
+            vote="MITIGATE",
+            risk_tags=["database-schema-mutation"],
+            mitigation_requirements=["Snapshot before DDL"],
+        ),
+    }
+
+    res_r1 = arbiter.synthesize(
+        proposal, votes_three_mitigate, current_round=1, max_rounds=3
+    )
+    assert res_r1.verdict == "CONDITIONAL_ALIGNMENT"
+    assert res_r1.requires_revision is True
+
+    res_r3 = arbiter.synthesize(
+        proposal, votes_three_mitigate, current_round=3, max_rounds=3
+    )
+    assert res_r3.verdict == "CONDITIONAL_ALIGNMENT"
+    assert res_r3.requires_revision is False
+
+    # Single mitigation without high risk or revision tag should not force revision
+    votes_single_mitigate = {
+        "security": StructuredAgentVote(stakeholder_id="security", vote="APPROVE"),
+        "compliance": StructuredAgentVote(stakeholder_id="compliance", vote="APPROVE"),
+        "finops": StructuredAgentVote(stakeholder_id="finops", vote="APPROVE"),
+        "sre": StructuredAgentVote(
+            stakeholder_id="sre",
+            vote="MITIGATE",
+            risk_tags=["database-schema-mutation"],
+            mitigation_requirements=["Snapshot before DDL"],
+        ),
+    }
+    res_single = arbiter.synthesize(
+        proposal, votes_single_mitigate, current_round=1, max_rounds=3
+    )
+    assert res_single.verdict == "CONDITIONAL_ALIGNMENT"
+    assert res_single.requires_revision is False
+
+
+def test_multi_round_revision_and_watchdog_termination(tmp_path, monkeypatch):
+    """Verify multi-round revision via arbiter, watchdog termination at max_rounds, and vote lineage."""
+    import json
+
+    from nemawashi.audit.ledger import (
+        commit_chained_audit_ledger_node,
+        verify_ledger_chain,
+    )
+    from nemawashi.core.graph import immediate_policy_veto_node
+
+    test_ledger = tmp_path / "test_ledger.jsonl"
+    test_cache = tmp_path / "test_cache.json"
+    monkeypatch.setattr("nemawashi.audit.ledger.DEFAULT_LEDGER_PATH", test_ledger)
+    monkeypatch.setattr("nemawashi.core.cache.DEFAULT_CACHE_PATH", test_cache)
+
+    engine = NemawashiEngine(max_rounds=3)
+    proposal = AgentProposal(
+        proposal_id="p-multi-round",
+        proposing_agent="agent-worker",
+        action_type="iam_role_elevation",
+        action_description="Update user schema migration ddl",
+        target_resource="user-iam-role",
+        estimated_cost_usd=100.0,
+        estimated_blast_radius=75,
+    )
+
+    final_state = engine.evaluate_proposal(proposal)
+    assert final_state.get("current_round") == 3
+    assert final_state.get("execution_permitted") is True
+    assert final_state.get("resolution").verdict == "CONDITIONAL_ALIGNMENT"
+    assert len(final_state.get("votes", [])) == 12
+    assert len(final_state.get("stakeholder_votes", {})) == 4
+    assert final_state.get("audit_committed") is True
+
+    # Verify full 12-vote lineage is persisted in the JSONL ledger
+    records = [
+        json.loads(line)
+        for line in test_ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 1
+    assert records[0]["deliberation_round"] == 3
+    assert len(records[0]["vote_history"]) == 12
+
+    # Verify watchdog termination at max_rounds preserves vote_history in ledger
+    watchdog_state = create_initial_state(proposal=proposal, max_rounds=3)
+    watchdog_state["current_round"] = 3
+    watchdog_state["max_rounds"] = 3
+    watchdog_state["policy_passed"] = True
+    watchdog_state["votes"] = list(final_state["votes"])
+    watchdog_state["stakeholder_votes"] = dict(final_state["stakeholder_votes"])
+    watchdog_state["resolution"] = Resolution(
+        proposal_id=proposal.proposal_id,
+        verdict="CONDITIONAL_ALIGNMENT",
+        composite_risk_score=54,
+        mandatory_mitigations=["Unresolved mitigation"],
+        requires_human_approval=False,
+        requires_revision=True,
+        summary="Still requires revision at max_rounds",
+    )
+
+    assert consensus_router(watchdog_state) == "immediate_policy_veto_node"
+    watchdog_state.update(immediate_policy_veto_node(watchdog_state))
+    assert watchdog_state.get("loop_veto_triggered") is True
+    assert watchdog_state.get("execution_permitted") is False
+    assert watchdog_state["resolution"].verdict == "CONSENSUS_VETO"
+
+    commit_res = commit_chained_audit_ledger_node(
+        watchdog_state, ledger_path=test_ledger
+    )
+    assert commit_res["audit_committed"] is True
+
+    records = [
+        json.loads(line)
+        for line in test_ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 2
+    assert records[1]["verdict"] == "CONSENSUS_VETO"
+    assert len(records[1]["vote_history"]) == 12
+
+    valid, msg = verify_ledger_chain(ledger_path=test_ledger)
+    assert valid is True, msg

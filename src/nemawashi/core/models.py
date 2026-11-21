@@ -267,6 +267,10 @@ class AuditRecord(BaseModel):
         default_factory=dict,
         description="Serialized StructuredAgentVote map for all stakeholders",
     )
+    vote_history: list[StructuredAgentVote] = Field(
+        default_factory=list,
+        description="Chronological multi-round StructuredAgentVote history across all deliberation rounds",
+    )
     mitigations: list[str] = Field(
         default_factory=list, description="Enforced mitigations"
     )

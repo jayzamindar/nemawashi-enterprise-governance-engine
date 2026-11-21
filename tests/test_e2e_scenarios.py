@@ -8,12 +8,11 @@ Validates:
 5. End-to-end cryptographic verification of the complete ledger hash chain.
 """
 
-from pathlib import Path
 import pytest
 
 from nemawashi.audit.ledger import verify_ledger_chain
 from nemawashi.core.engine import NemawashiEngine
-from nemawashi.core.models import AgentProposal, StructuredAgentVote
+from nemawashi.core.models import AgentProposal
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +67,9 @@ def test_scenario_1_unanimous_consensus(isolated_environment):
 
     # Verify stakeholder_map
     s_map = state.get("stakeholder_map", {})
-    assert all(s_map[s] == "APPROVE" for s in ["security", "compliance", "finops", "sre"])
+    assert all(
+        s_map[s] == "APPROVE" for s in ["security", "compliance", "finops", "sre"]
+    )
 
     # Verify token metrics tracked
     assert state.get("prompt_tokens", 0) > 0
@@ -87,7 +88,10 @@ def test_scenario_2_conditional_alignment(isolated_environment):
         target_resource="staging-aurora-postgres",
         estimated_cost_usd=120.0,
         estimated_blast_radius=60,
-        parameters={"table": "user_sessions", "ddl": "CREATE INDEX CONCURRENTLY idx_user_sess"},
+        parameters={
+            "table": "user_sessions",
+            "ddl": "CREATE INDEX CONCURRENTLY idx_user_sess",
+        },
     )
 
     state = engine.evaluate_proposal(proposal)
@@ -240,3 +244,58 @@ def test_complete_cryptographic_ledger_verification(isolated_environment):
     valid, message = verify_ledger_chain(ledger_path=ledger_path)
     assert valid is True, f"Ledger verification failed: {message}"
     assert "4 records intact" in message
+
+
+def test_scenario_5_multi_round_revision_and_vote_lineage(isolated_environment):
+    """Scenario 5: Multi-round revision preserves full chronological vote_history in AuditRecord."""
+    import json
+
+    engine = NemawashiEngine(max_rounds=3)
+    ledger_path = isolated_environment["ledger_path"]
+
+    proposal = AgentProposal(
+        proposal_id="e2e-scen-5-multi-round",
+        proposing_agent="agent-db-migrator",
+        action_type="iam_role_elevation",
+        action_description="Update user schema migration ddl",
+        target_resource="user-iam-role",
+        estimated_cost_usd=100.0,
+        estimated_blast_radius=75,
+    )
+
+    state = engine.evaluate_proposal(proposal)
+
+    assert state.get("policy_passed") is True
+    assert state.get("current_round") == 3
+    assert state.get("execution_permitted") is True
+    assert state.get("resolution") is not None
+    assert state["resolution"].verdict == "CONDITIONAL_ALIGNMENT"
+    assert state.get("audit_committed") is True
+    assert len(state.get("votes", [])) == 12
+    assert len(state.get("stakeholder_votes", {})) == 4
+
+    lines = [
+        json.loads(line)
+        for line in ledger_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(lines) == 1
+    record = lines[0]
+    assert record["deliberation_round"] == 3
+    assert len(record["vote_history"]) == 12
+    assert [v["stakeholder_id"] for v in record["vote_history"]] == [
+        "security",
+        "compliance",
+        "finops",
+        "sre",
+    ] * 3
+
+    valid, message = verify_ledger_chain(ledger_path=ledger_path)
+    assert valid is True, f"Ledger verification failed: {message}"
+
+    # Tampering with vote_history must fail cryptographic verification
+    record["vote_history"][0]["vote"] = "REJECT"
+    ledger_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    tampered_valid, tampered_msg = verify_ledger_chain(ledger_path=ledger_path)
+    assert tampered_valid is False
+    assert "Tamper detected!" in tampered_msg

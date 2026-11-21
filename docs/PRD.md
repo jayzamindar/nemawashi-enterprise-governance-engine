@@ -17,7 +17,7 @@
 | **Author** | Principal AI Systems Engineer |
 | **Target Runtime** | CPython 3.12 (managed via `uv` in `.venv`) |
 | **Target Deployment** | Containerized `python:3.12-slim` on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) |
-| **Document Hierarchy** | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md) $\rightarrow$ `TRD.md` $\rightarrow$ [`PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/PRD.md) $\rightarrow$ [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/URD.md) $\rightarrow$ [`IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/IMPLEMENTATION_PLAN.md) |
+| **Document Hierarchy** | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md) $\rightarrow$ `TRD.md` $\rightarrow$ [`PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md) $\rightarrow$ [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) $\rightarrow$ [`IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/IMPLEMENTATION_PLAN.md) |
 
 ### 1.2 Executive Summary & Problem Statement
 
@@ -64,7 +64,7 @@ The engine must satisfy rigorous performance, financial, and architectural Servi
 
 ## 3. Target Audience & User Personas Summary
 
-The governance engine serves five primary stakeholder personas across the enterprise. For comprehensive actor profiles, operational permissions, and RACI matrices, refer to [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/URD.md) (Section 2).
+The governance engine serves five primary stakeholder personas across the enterprise. For comprehensive actor profiles, operational permissions, and RACI matrices, refer to [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) (Section 2).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐

@@ -140,6 +140,7 @@ GEMINI.md (Workspace Constitution & Source of Truth)
 | Document | Path | Scope & Description |
 |---|---|---|
 | **Constitution** | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md) | Architectural invariants, locked technology stack, and engineering protocols. |
+| **Prompt Registry** | [`modular_prompt.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/modular_prompt.md) | Centralized index of all active stakeholder prompts in `prompts/` and prompt-loading guards. |
 | **PRR Gate** | [`docs/PRODUCTION_READINESS_REPORT.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRODUCTION_READINESS_REPORT.md) | Production Readiness Review & Test Verification Report — **GO Decision (66/66 Tests Passing)**. |
 | **TRD** | [`docs/TRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/TRD.md) | Exact Pydantic v2 models, LangGraph state channels, routing matrices, and cryptographic formulas. |
 | **PRD** | [`docs/PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md) | Product vision, quantifiable SLAs/KPIs, functional epics, and NFR budgets. |
@@ -175,8 +176,9 @@ cp .env.example .env
 # 2. Build and launch the container in detached mode
 docker compose up -d --build
 
-# 3. Verify health probe and open interactive API documentation
+# 3. Verify health/readiness probes and open interactive API documentation
 curl http://localhost:8000/health
+curl http://localhost:8000/ready
 # Open in browser: http://localhost:8000/docs
 ```
 

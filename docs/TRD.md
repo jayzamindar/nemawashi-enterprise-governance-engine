@@ -142,21 +142,25 @@ class StructuredAgentVote(BaseModel):
 ```python
 class AgentProposal(BaseModel):
     """The operational payload submitted by an autonomous worker agent."""
-    proposal_id: str = Field(..., min_length=1)
-    proposing_agent: str = Field(..., min_length=1)
-    action_type: str = Field(..., min_length=1)
-    action_description: str = Field(..., min_length=1)
-    target_resource: str = Field(..., min_length=1)
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    proposal_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]{1,128}$")
+    proposing_agent: str = Field(..., min_length=1, max_length=256)
+    action_type: ActionType = Field(...)
+    action_description: str = Field(..., min_length=1, max_length=4096)
+    target_resource: str = Field(..., min_length=1, max_length=512)
     estimated_cost_usd: float = Field(default=0.0, ge=0.0)
     estimated_blast_radius: int = Field(default=0, ge=0, le=100)
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat(), max_length=64)
 ```
 
 ```python
 class Resolution(BaseModel):
     """Final synthesized consensus decision produced by ConsensusArbiter."""
-    proposal_id: str
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    proposal_id: str = Field(..., min_length=1)
     verdict: Literal[
         "UNANIMOUS_CONSENSUS",
         "CONDITIONAL_ALIGNMENT",
@@ -164,7 +168,7 @@ class Resolution(BaseModel):
         "CONSENSUS_VETO",
     ]
     composite_risk_score: int = Field(ge=0, le=100)
-    mandatory_mitigations: List[str] = Field(default_factory=list)
+    mandatory_mitigations: list[str] = Field(default_factory=list)
     requires_human_approval: bool = False
     requires_revision: bool = False
     summary: str = Field(..., min_length=1)
@@ -173,7 +177,7 @@ class Resolution(BaseModel):
 ```python
 class UsageMetadata(BaseModel):
     """Token consumption and unit economics metrics for an agent turn."""
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
@@ -187,22 +191,23 @@ class AuditRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     index: int = Field(ge=0)
-    timestamp: str
-    proposal_id: str
-    action_type: str
-    verdict: str
+    timestamp: str = Field(..., min_length=1)
+    proposal_id: str = Field(..., min_length=1)
+    action_type: str = Field(..., min_length=1)
+    verdict: str = Field(..., min_length=1)
     execution_permitted: bool
     composite_risk_score: int = Field(ge=0, le=100)
-    stakeholder_votes: Dict[str, Any]
-    mitigations: List[str]
-    human_approval: Optional[Dict[str, Any]] = None
-    deliberation_round: int = Field(ge=1)
-    cache_hit: bool = Field(default=False, description="Flag indicating whether this record was served from semantic cache.")
+    stakeholder_votes: dict[str, StructuredAgentVote] = Field(default_factory=dict)
+    vote_history: list[StructuredAgentVote] = Field(default_factory=list)
+    mitigations: list[str] = Field(default_factory=list)
+    human_approval: HumanApprovalRecord | None = None
+    deliberation_round: int = Field(default=1, ge=1)
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     total_cost_usd: float = Field(default=0.0, ge=0.0)
-    previous_hash: str = Field(min_length=64, max_length=64)
-    record_hash: str = Field(min_length=64, max_length=64)
+    cache_hit: bool = Field(default=False, description="Flag indicating whether this record was served from semantic cache.")
+    previous_hash: str
+    record_hash: str
 ```
 
 ---
@@ -354,15 +359,19 @@ The FastAPI ingress gateway exposes `POST /resume` to receive operator callback 
 #### Security & Authentication Requirements:
 - **Shared Secret**: Loaded from environment variable `NEMAWASHI_WEBHOOK_SECRET`.
 - **Signature Transmission**: Transmitted via HTTP header `X-Nemawashi-Signature` (with required prefix `sha256=<64_hex_chars>`) or request body field `auth_token` (`<64_hex_chars>`).
-- **Signature Formula**:
-  $$\text{signature} = \text{HMAC-SHA256}(\text{key}=\text{secret}, \text{msg}=f"\{\text{proposal\_id}\}:\{\text{str(approved).lower()}\}:\{\text{rationale}\}")$$
+- **Signature Formula (Canonical JSON + Anti-Replay)**:
+  $$\text{signature} = \text{HMAC-SHA256}(\text{key}=\text{secret}, \text{msg}=\text{json.dumps}(\{\text{proposal\_id}, \text{approved}, \text{rationale}, \text{issued\_at}, \text{expires\_at}, \text{nonce}\}, \text{sort\_keys=True}, \text{separators}=("," , ":"), \text{ensure\_ascii=False}))$$
+- **Anti-Replay Enforcement**: `expires_at - issued_at <= 300.0`s TTL, rejecting `current_time >= expires_at` and duplicate `nonce` submissions.
 - **Constant-Time Verification**:
   ```python
   expected_sig = compute_resume_signature(
-      proposal_id=req.proposal_id,
-      approved=req.approved,
-      rationale=req.rationale,
+      proposal_id=request.proposal_id,
+      approved=request.approved,
+      rationale=request.rationale,
       secret=webhook_secret,
+      issued_at=request.issued_at,
+      expires_at=request.expires_at,
+      nonce=request.nonce,
   )
 
   if not hmac.compare_digest(provided_sig, expected_sig):

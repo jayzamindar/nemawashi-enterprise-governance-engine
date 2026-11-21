@@ -177,12 +177,10 @@ C:\WWORKING_folder\ProjectFolders\Nemawashi-Governance-Engine\
 │   ├── launch.json                     # VS Code debug launcher (CLI demo, deliberation scenarios, pytest)
 │   └── extensions.json                 # Recommended extensions (Python, Pylance, Ruff)
 ├── prompts/
-│   ├── nemawashi_master_prompt.md     # Master AI governance directive (根回し consensus model)
 │   ├── security_stakeholder.md        # Security Guardian agent system prompt
 │   ├── compliance_stakeholder.md      # Compliance & Legal Arbiter agent system prompt
 │   ├── finops_stakeholder.md          # FinOps & Resource Arbiter agent system prompt
-│   ├── sre_stakeholder.md             # SRE & Operational Reliability agent system prompt
-│   └── cost_optimizer.md              # Adaptive Cost Optimization agent system prompt
+│   └── sre_stakeholder.md             # SRE & Operational Reliability agent system prompt
 ├── src/
 │   └── nemawashi/
 │       ├── __init__.py                 # Version & package exports
@@ -232,42 +230,15 @@ C:\WWORKING_folder\ProjectFolders\Nemawashi-Governance-Engine\
 
 ---
 
-## 4. Master AI Prompt & Stakeholder Prompts
+## 4. Master Governance Directives & Stakeholder Prompts
 
-### `prompts/nemawashi_master_prompt.md`
-```markdown
-# Nemawashi: Enterprise Multi-Agent Governance Engine (Master Directive)
+All active stakeholder system prompts are indexed in [`modular_prompt.md`](../modular_prompt.md) and stored in `prompts/`:
+- [`prompts/security_stakeholder.md`](../prompts/security_stakeholder.md) — Security Guardian (`PER-03`)
+- [`prompts/compliance_stakeholder.md`](../prompts/compliance_stakeholder.md) — Compliance & Legal Arbiter (`PER-04`)
+- [`prompts/finops_stakeholder.md`](../prompts/finops_stakeholder.md) — FinOps Arbiter (`PER-05`)
+- [`prompts/sre_stakeholder.md`](../prompts/sre_stakeholder.md) — SRE Sentinel (`PER-06`)
 
-You are **NEMAWASHI-1**, the Enterprise Multi-Agent Governance Arbiter. Your sole purpose is to enforce rigorous pre-execution alignment, policy compliance, blast radius dampening, and cross-functional consensus across autonomous agent swarms before any production or sensitive action takes place.
-
-### Core Governance Philosophy (根回し - Laying the Groundwork)
-Never permit unilateral action execution on high-impact systems. Every agent proposal must undergo asynchronous stakeholder review, risk evaluation, and consensus synthesis.
-
-### The 4 Consensus Verdicts
-1. **UNANIMOUS_CONSENSUS (Proceed)**: All stakeholders approve with blast radius <= policy threshold.
-2. **CONDITIONAL_ALIGNMENT (Mitigated Proceed)**: Approved subject to automated safety constraints (e.g., dry-run first, rate limit imposed, canary percentage <= 5%).
-3. **HUMAN_IN_THE_LOOP_ESCALATION (Gatekeeper Required)**: High financial, legal, or infrastructural impact requires executive human sign-off via asynchronous callback.
-4. **CONSENSUS_VETO (Action Blocked)**: Direct violation of zero-trust security policies, hard compliance regulations, or unmitigated catastrophic failure risk.
-
-### Structured Output Enforcement
-All decisions and stakeholder votes MUST be returned strictly conforming to the `response_schema` provided (`StructuredAgentVote`). Do not include markdown codeblocks or conversational filler.
-```
-
-### `prompts/cost_optimizer.md`
-```markdown
-# Adaptive Cost Optimization Agent Directive
-
-You are the **Adaptive Cost Optimization Agent** in the Nemawashi Governance Engine.
-
-Your responsibility:
-- Analyze infrastructure proposals that have breached FinOps financial ceilings or triggered cost mitigations.
-- Formulate concrete, rightsized infrastructure alternatives:
-  1. Spot / Preemptible instance allocation for stateless or batch workloads.
-  2. Compute Savings Plans or 1-year Reserved Instance coverage.
-  3. Dynamic resource scaling down of dev/staging environments outside business hours.
-  4. Optimizing storage tiers (e.g. gp2 -> gp3, S3 Standard -> S3 Glacier Instant Retrieval).
-- Return an updated `AgentProposal` payload with adjusted `estimated_cost_usd` and mitigation parameters.
-```
+Master governance invariants are codified in [`GEMINI.md`](../GEMINI.md) and [`Enterprise_Blueprint.md`](../Enterprise_Blueprint.md). `ConsensusArbiterAgent` (`src/nemawashi/agents/arbiter.py`) and `CostOptimizationAgent` (`src/nemawashi/agents/optimizer.py`) execute deterministically in Python without external Markdown prompt templates.
 
 ---
 

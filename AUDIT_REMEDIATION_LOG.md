@@ -18,8 +18,8 @@
 | `REM-007` | `HIGH` | Loop & Self-Healing / Concurrency | `src/nemawashi/core/engine.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
 | `REM-008` | `HIGH` | Resource Ceiling | `src/nemawashi/main.py`, `src/nemawashi/core/models.py`, `src/nemawashi/core/cache.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
 | `REM-009` | `HIGH` | CI/CD & Test Safety | `pyproject.toml`, `requirements.txt`, `.github/workflows/ci.yml`, `tests/test_gateway_auth.py` | `[x] DONE` |
-| `REM-010` | `HIGH` | Loop & Self-Healing | `src/nemawashi/agents/arbiter.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
-| `REM-011` | `MEDIUM` | Documentation Drift | `README.md`, `docs/TRD.md`, `docs/IMPLEMENTATION_PLAN.md`, `Dockerfile`, `prompts/` | `[ ] OPEN` |
+| `REM-010` | `HIGH` | Loop & Self-Healing | `src/nemawashi/agents/arbiter.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py`, `src/nemawashi/core/models.py` | `[x] DONE` |
+| `REM-011` | `MEDIUM` | Documentation Drift | `README.md`, `docs/TRD.md`, `docs/IMPLEMENTATION_PLAN.md`, `Dockerfile`, `prompts/` | `[x] DONE` |
 
 ---
 
@@ -241,7 +241,8 @@
   1. Define clear deterministic conditions in `ConsensusArbiterAgent.synthesize` for when `CONDITIONAL_ALIGNMENT` sets `requires_revision=True` (bounded by `current_round < max_rounds`).
   2. Record or link multi-round vote history from `state["votes"]` in `AuditRecord` (or `round_history`) so prior-round votes are not lost from the immutable ledger.
 - **Verification Criteria:** Run `pytest tests/test_langgraph_routing.py tests/test_e2e_scenarios.py -v` with a new multi-round revision test verifying `requires_revision=True` triggers `deliberation_revision_node`, hits `max_rounds` watchdog cleanly, and preserves multi-round vote lineage in `AuditRecord`.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Updated `ConsensusArbiterAgent.synthesize` (`src/nemawashi/agents/arbiter.py`) to actively evaluate `current_round < max_rounds` and set `requires_revision=True` under deterministic mitigation revision conditions (`requires_revision`, `mitigate_count >= 3`, `len(all_mitigations) >= 4`, `composite_risk >= 65`, or `"revision"`/`"conflict"` risk tags); added `vote_history: list[StructuredAgentVote]` to `AuditRecord` (`src/nemawashi/core/models.py`) and updated `commit_chained_audit_ledger_node`, `calculate_record_hash`, and `verify_ledger_chain` (`src/nemawashi/audit/ledger.py`) to persist and cryptographically seal chronological multi-round `state["votes"]` history; added TDD tests in `tests/test_langgraph_routing.py` and `tests/test_e2e_scenarios.py` verifying multi-round revision, watchdog termination at `max_rounds`, and `vote_history` lineage and tamper detection.
+- **Status:** `[x] DONE`
 
 ---
 
@@ -266,4 +267,5 @@
   3. Update `Dockerfile` `HEALTHCHECK` to probe `http://localhost:8000/health`.
   4. Synchronize `README.md`, `docs/TRD.md`, and `docs/IMPLEMENTATION_PLAN.md` to match actual files and schemas.
 - **Verification Criteria:** Verify zero dead file links in `README.md` and `docs/`, `EnterpriseRulesConfig` validates `enterprise_rules.json` with `extra="forbid"`, and `Dockerfile` healthcheck targets `/health`.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Created `modular_prompt.md` indexing all 4 active stakeholder prompts in `prompts/` (`security_stakeholder.md`, `compliance_stakeholder.md`, `finops_stakeholder.md`, `sre_stakeholder.md`) and documenting deterministic non-prompted agents; removed stale `prompts/nemawashi_master_prompt.md` and `prompts/cost_optimizer.md` references from `docs/IMPLEMENTATION_PLAN.md`; removed unused `max_blast_radius_auto_approve` key from `src/nemawashi/policies/enterprise_rules.json`; updated `Dockerfile` `HEALTHCHECK` to probe `http://localhost:8000/health`; synchronized `docs/TRD.md` (`AgentProposal`, `UsageMetadata`, `AuditRecord` with `vote_history`, `/resume` canonical JSON HMAC + anti-replay), `README.md` (`modular_prompt.md` & `/ready`), and fixed 4 dead links in `docs/PRD.md`.
+- **Status:** `[x] DONE`

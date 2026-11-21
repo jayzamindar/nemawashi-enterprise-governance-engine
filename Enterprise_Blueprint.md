@@ -81,7 +81,7 @@ Every module and remediation ticket in `nemawashi-governance-engine` must satisf
 
 ### Phase 2: Pydantic v2 Contracts & Deterministic Policy Hardening
 - [x] **2.1 Strict Frozen Pydantic v2 Contracts (`REM-003` / `BUILD-PROMPT-02`):** Enforce `ConfigDict(extra="forbid", frozen=True)`, `proposal_id` regex, `ActionType` allowlist, and `model_copy` immutability across `models.py`, `main.py`, and `optimizer.py`.
-- [ ] **2.2 Fail-Closed Policy Catalog & NFKC Normalization (`REM-004` / `BUILD-PROMPT-03`):** Add `EnterpriseRulesConfig` validation, `CatalogNotFoundError` fail-closed handling, and NFKC + `casefold()` normalization in `policy_engine.py`.
+- [x] **2.2 Fail-Closed Policy Catalog & NFKC Normalization (`REM-004` / `BUILD-PROMPT-03`):** Add `EnterpriseRulesConfig` validation, `CatalogNotFoundError` fail-closed handling, and NFKC + `casefold()` normalization in `policy_engine.py`.
 
 ### Phase 3: AI Reasoner Security, Schema Sanitization & Deterministic Cache
 - [x] **3.1 Prompt Injection, Schema Sanitizer, Circuit Breakers & Cache Hash (`REM-005` / `BUILD-PROMPT-04`):** Strip XML breakout tags, enforce field length caps, load `GEMINI_MODEL_NAME` dynamically, cap `max_output_tokens=8192`, add OpenAPI 3.0 `clean_gemini_schema()`, add token/cost circuit breakers, log exceptions, and replace `hash()` with `hashlib.sha256` in `cache.py`.

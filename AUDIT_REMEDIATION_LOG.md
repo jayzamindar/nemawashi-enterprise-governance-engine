@@ -12,7 +12,7 @@
 | `REM-001` | `CRITICAL` | Missing Blueprint | `Enterprise_Blueprint.md` | `[x] DONE` |
 | `REM-002` | `HIGH` | Reference Port | `GEMINI.md` | `[x] DONE` |
 | `REM-003` | `CRITICAL` | Pydantic | `src/nemawashi/core/models.py`, `src/nemawashi/main.py`, `src/nemawashi/agents/optimizer.py` | `[x] DONE` |
-| `REM-004` | `CRITICAL` | Deterministic Guardrail | `src/nemawashi/policies/policy_engine.py`, `src/nemawashi/policies/enterprise_rules.json` | `[ ] OPEN` |
+| `REM-004` | `CRITICAL` | Deterministic Guardrail | `src/nemawashi/policies/policy_engine.py`, `src/nemawashi/policies/enterprise_rules.json` | `[x] DONE` |
 | `REM-005` | `CRITICAL` | Deterministic Guardrail / Resource Ceiling | `src/nemawashi/agents/base.py`, `src/nemawashi/core/cache.py` | `[x] DONE` |
 | `REM-006` | `CRITICAL` | Crypto/Audit | `src/nemawashi/main.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
 | `REM-007` | `HIGH` | Loop & Self-Healing / Concurrency | `src/nemawashi/core/engine.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
@@ -99,7 +99,8 @@
   2. Raise a custom `CatalogNotFoundError` (or return fail-closed `passed=False` with `CATALOG_MISSING_OR_CORRUPT` violation) when `enterprise_rules.json` is missing, unreadable, or fails schema validation.
   3. Normalize `action_type`, `target_resource`, and rule entries using `unicodedata.normalize("NFKC", val).strip().casefold()`.
 - **Verification Criteria:** Run `pytest tests/test_policy_engine.py -v` with added tests for missing/corrupt `enterprise_rules.json` (asserting fail-closed behavior) and NFKC homoglyph bypass attempts.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Added `EnterpriseRulesConfig` (`ConfigDict(extra="forbid", frozen=True)`), `CatalogNotFoundError`, `load_enterprise_rules()`, and `normalize_policy_text()` (`unicodedata.normalize("NFKC", val).strip().casefold()`) in `src/nemawashi/policies/policy_engine.py`; made `PolicyEvaluationResult` strict/frozen; updated `evaluate_proposal_policies()` to fail closed with `CATALOG_MISSING_OR_CORRUPT` instead of falling back to partial defaults; added TDD tests in `tests/test_policy_engine.py` for missing/corrupt/schema-invalid catalogs and NFKC fullwidth homoglyph bypasses. Diagnosed `tests/test_gateway_auth.py` timeout: `TestClient(app)` -> `anyio` -> Windows `ProactorEventLoop._make_self_pipe()` blocks on loopback `socket.socketpair()` inside the network-isolated Windows sandbox and passes all 22 tests in ~1.6s when loopback sockets are allowed.
+- **Status:** `[x] DONE`
 
 ---
 

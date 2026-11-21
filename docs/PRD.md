@@ -17,7 +17,7 @@
 | **Author** | Principal AI Systems Engineer |
 | **Target Runtime** | CPython 3.12 (managed via `uv` in `.venv`) |
 | **Target Deployment** | Containerized `python:3.12-slim` on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) |
-| **Document Hierarchy** | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md) $\rightarrow$ `TRD.md` $\rightarrow$ [`PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md) $\rightarrow$ [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) $\rightarrow$ [`IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/IMPLEMENTATION_PLAN.md) |
+| **Document Hierarchy** | [`GEMINI.md`](../GEMINI.md) $\rightarrow$ [`TRD.md`](TRD.md) $\rightarrow$ [`PRD.md`](PRD.md) $\rightarrow$ [`URD.md`](URD.md) $\rightarrow$ [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) |
 
 ### 1.2 Executive Summary & Problem Statement
 
@@ -64,7 +64,7 @@ The engine must satisfy rigorous performance, financial, and architectural Servi
 
 ## 3. Target Audience & User Personas Summary
 
-The governance engine serves five primary stakeholder personas across the enterprise. For comprehensive actor profiles, operational permissions, and RACI matrices, refer to [`URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) (Section 2).
+The governance engine serves five primary stakeholder personas across the enterprise. For comprehensive actor profiles, operational permissions, and RACI matrices, refer to [`URD.md`](URD.md) (Section 2).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -269,7 +269,7 @@ The Nemawashi Governance Engine is engineered to satisfy enterprise governance m
 ```
 
 ### 8.1 Continuous Integration Strategy (GitHub Actions)
-- **Automated Triggering**: The CI workflow ([`.github/workflows/ci.yml`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/.github/workflows/ci.yml)) triggers on every `push` and `pull_request` targeting `main`.
+- **Automated Triggering**: The CI workflow ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) triggers on every `push` and `pull_request` targeting `main`.
 - **Two-Job Verification Matrix**:
   - **Job 1 (`test-and-lint`)**: Checks out code, sets up Python 3.12 + `uv`, installs dependencies, and runs all 66 automated unit and scenario tests in deterministic offline mode (`GEMINI_API_KEY=""`, `NEMAWASHI_WEBHOOK_SECRET="ci-test-secret-32-bytes-minimum"`).
   - **Job 2 (`docker-build-verify`)**: Builds the production container (`nemawashi-governance-engine:ci`) and executes the 66-test suite directly inside the Linux container, guaranteeing runtime and architecture parity before merge.

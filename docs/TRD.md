@@ -16,7 +16,7 @@
 | **Classification** | Enterprise Confidential / Technical Specification |
 | **Author** | Principal AI Systems Engineer |
 | **Runtime Target** | CPython 3.12 (managed via `uv` in `.venv`, containerized via `python:3.12-slim`) |
-| **Document Hierarchy** | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md) $\rightarrow$ [`docs/TRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/TRD.md) $\rightarrow$ [`docs/PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md) $\rightarrow$ [`docs/URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) $\rightarrow$ [`docs/IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/IMPLEMENTATION_PLAN.md) |
+| **Document Hierarchy** | [`GEMINI.md`](../GEMINI.md) $\rightarrow$ [`docs/TRD.md`](TRD.md) $\rightarrow$ [`docs/PRD.md`](PRD.md) $\rightarrow$ [`docs/URD.md`](URD.md) $\rightarrow$ [`docs/IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) |
 
 ---
 
@@ -214,7 +214,7 @@ class AuditRecord(BaseModel):
 
 ### 2.2 LangGraph State Contract (`NemawashiState`) & Channel Reducers
 
-The complete state dictionary consists of **24 strictly typed fields** defined in [`src/nemawashi/core/state.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/src/nemawashi/core/state.py):
+The complete state dictionary consists of **24 strictly typed fields** defined in [`src/nemawashi/core/state.py`](../src/nemawashi/core/state.py):
 
 ```python
 class NemawashiState(TypedDict, total=False):
@@ -505,18 +505,18 @@ The governance engine enforces a locked, comprehensive automated test suite guar
 
 | Test Suite Module | Target Specification | Test Count | Status |
 |---|---|---|---|
-| [`tests/test_agents.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_agents.py) | Gemini Structured Outputs, Token Pricing, Fallbacks | 5 | **PASSED** |
-| [`tests/test_audit_chain.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_audit_chain.py) | SHA-256 Ledger, Mutex Locking, FileLock Timeout | 6 | **PASSED** |
-| [`tests/test_cache.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_cache.py) | Cosine Sim, 24h TTL, Rules Invalidation, Vote Lineage | 5 | **PASSED** |
-| [`tests/test_e2e_scenarios.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_e2e_scenarios.py) | End-to-End Enterprise Governance Scenarios | 5 | **PASSED** |
-| [`tests/test_gateway_auth.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_gateway_auth.py) | HMAC Callback, State HMAC, Path Traversal, Prompts | 9 | **PASSED** |
-| [`tests/test_gemini_schema.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_gemini_schema.py) | Gemini Pydantic Schema Compatibility | 2 | **PASSED** |
-| [`tests/test_langgraph_routing.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_langgraph_routing.py) | LangGraph State Transitions, Routing, Round Slate Reset | 10 | **PASSED** |
-| [`tests/test_models.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_models.py) | Pydantic v2 Frozen Contracts & Validation | 9 | **PASSED** |
-| [`tests/test_optimizer.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_optimizer.py) | Cloud Resource Rightsizing & Spend Optimization | 3 | **PASSED** |
-| [`tests/test_policy_engine.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_policy_engine.py) | Declarative Rules Engine & Policy Violations | 5 | **PASSED** |
-| [`tests/test_state_reducers.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_state_reducers.py) | Monomorphic Reducers & Amnesia Prevention | 7 | **PASSED** |
-| **Total Test Baseline** | **Comprehensive Engine Verification** | **66** | **100% PASS** |
+| [`tests/test_agents.py`](../tests/test_agents.py) | Gemini Structured Outputs, Token Pricing, Fallbacks | 9 | **PASSED** |
+| [`tests/test_audit_chain.py`](../tests/test_audit_chain.py) | SHA-256 Ledger, Mutex Locking, FileLock Timeout | 8 | **PASSED** |
+| [`tests/test_cache.py`](../tests/test_cache.py) | Cosine Sim, 24h TTL, Rules Invalidation, Vote Lineage | 8 | **PASSED** |
+| [`tests/test_e2e_scenarios.py`](../tests/test_e2e_scenarios.py) | End-to-End Enterprise Governance Scenarios | 6 | **PASSED** |
+| [`tests/test_gateway_auth.py`](../tests/test_gateway_auth.py) | HMAC Callback, State HMAC, Path Traversal, Prompts | 23 | **PASSED** |
+| [`tests/test_gemini_schema.py`](../tests/test_gemini_schema.py) | Gemini Pydantic Schema Compatibility | 3 | **PASSED** |
+| [`tests/test_langgraph_routing.py`](../tests/test_langgraph_routing.py) | LangGraph State Transitions, Routing, Round Slate Reset | 12 | **PASSED** |
+| [`tests/test_models.py`](../tests/test_models.py) | Pydantic v2 Frozen Contracts & Validation | 11 | **PASSED** |
+| [`tests/test_optimizer.py`](../tests/test_optimizer.py) | Cloud Resource Rightsizing & Spend Optimization | 4 | **PASSED** |
+| [`tests/test_policy_engine.py`](../tests/test_policy_engine.py) | Declarative Rules Engine & Policy Violations | 9 | **PASSED** |
+| [`tests/test_state_reducers.py`](../tests/test_state_reducers.py) | Monomorphic Reducers & Amnesia Prevention | 7 | **PASSED** |
+| **Total Test Baseline** | **Comprehensive Engine Verification** | **100** | **100% PASS** |
 
 ---
 

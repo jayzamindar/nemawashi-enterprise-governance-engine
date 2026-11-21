@@ -6,7 +6,7 @@
 [![FastAPI](https://img.shields.io/badge/API_Gateway-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Container-Docker_Compose-2496ED.svg)](https://www.docker.com/)
 [![AWS Free Tier](https://img.shields.io/badge/Cloud-AWS_EC2_Free_Tier-FF9900.svg)](https://aws.amazon.com/free/)
-[![Tests](https://img.shields.io/badge/Tests-66%2F66_Passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-100%2F100_Passing-brightgreen.svg)](tests/)
 
 An enterprise-grade governance engine that implements **Nemawashi** (根回し) — the authentic Japanese organizational consensus-building process — across autonomous agent swarms before any production, financial, or sensitive cloud infrastructure mutation occurs.
 
@@ -103,15 +103,15 @@ Production-grade AI governance architectures cannot rely on single-model consens
 
 To guarantee zero-defect reliability, every architectural contract, state transition, cryptographic boundary, and failure mode in the Nemawashi Governance Engine was subjected to **multi-model adversarial red-teaming** prior to production release. Specialized Frontier and Open-Weights models were assigned distinct adversarial roles to audit logic, probe protocol edge cases, and challenge security invariants.
 
-All critical vulnerabilities identified during this review process have been systematically mitigated, documented in our [ADR Catalog](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/adr/), and permanently guarded behind our baseline of **66 automated regression tests**.
+All critical vulnerabilities identified during this review process have been systematically mitigated, documented in our [ADR Catalog](docs/adr/), and permanently guarded behind our baseline of **100 automated regression tests** (90.07% coverage).
 
 | Model & Role | Adversarial Audit Focus | Critical Finding Caught & Hardened | Verification Artifact |
 |---|---|---|---|
-| **Gemini 3.8 Flash**<br>*(Lead Architect & TDD Builder)* | StateGraph topology, Pydantic v2 contracts, dual-mode `response_schema`, Docker & CI/CD orchestration. | Engineered monomorphic `append_vote` reducers (`TypeError` on collection injection), `current_round > max_rounds` circuit breaker, and non-root `python:3.12-slim` containerization. | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md)<br>[`docs/TRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/TRD.md)<br>[`Dockerfile`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/Dockerfile) |
-| **DeepSeek R1**<br>*(Hostile Logic & State-Machine Auditor)* | Multi-round revision loops, state mutation leakage, and consensus race conditions. | Caught stale `stakeholder_votes` and `stakeholder_map` surviving across revision rounds; enforced round-scoped slate reset in `deliberation_revision_node` plus mandatory post-revision `policy_precheck_node` re-evaluation. | [`tests/test_langgraph_routing.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_langgraph_routing.py)<br>[`ADR-001`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/adr/ADR-001-deepseek-architecture-notes.md) |
-| **Qwen 2.5 Coder**<br>*(Python 3.12 Concurrency & Protocol Reviewer)* | File-level mutex locking, `FileLock` deadlock/timeout edge cases, and Pydantic v2 serialization. | Hardened `ledger.py` and `cache.py` with cross-platform `FileLock`, graceful `filelock.Timeout` exception handling, and semantic cache vote-lineage preservation (`CacheEntry` with restored `stakeholder_votes`). | [`tests/test_audit_chain.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_audit_chain.py)<br>[`tests/test_cache.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_cache.py)<br>[`ADR-002`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/adr/ADR-002-qwen-compliance-audit.md) |
-| **Cohere North**<br>*(Enterprise CISO & Compliance Auditor)* | Prompt injection vectors, directory traversal, suspended state tampering, and SOC 2 / ISO 27001 auditability. | Enforced `<untrusted_proposal_data>` XML delimiters in Gemini prompts, `Path.is_relative_to()` prompt containment guards, `^[a-zA-Z0-9_-]{1,128}$` `proposal_id` regex validation, and `_state_hmac` disk integrity seals. | [`tests/test_gateway_auth.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_gateway_auth.py) |
-| **Llama Auto-Debugger**<br>*(Chaos & Failure-Mode QA Engineer)* | Malformed HTTP headers, signature truncation/whitespace attacks, and corrupted checkpoint recovery. | Generated adversarial test vectors for malformed `X-Nemawashi-Signature` headers (unsupported prefixes, truncated hex, whitespace), replay prevention, and corrupted suspended state recovery. | [`tests/test_gateway_auth.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_gateway_auth.py)<br>[`ADR-003`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/adr/ADR-003-llama-review-notes.md) |
+| **Gemini 3.8 Flash**<br>*(Lead Architect & TDD Builder)* | StateGraph topology, Pydantic v2 contracts, dual-mode `response_schema`, Docker & CI/CD orchestration. | Engineered monomorphic `append_vote` reducers (`TypeError` on collection injection), `current_round > max_rounds` circuit breaker, and non-root `python:3.12-slim` containerization. | [`GEMINI.md`](GEMINI.md)<br>[`docs/TRD.md`](docs/TRD.md)<br>[`Dockerfile`](Dockerfile) |
+| **DeepSeek R1**<br>*(Hostile Logic & State-Machine Auditor)* | Multi-round revision loops, state mutation leakage, and consensus race conditions. | Caught stale `stakeholder_votes` and `stakeholder_map` surviving across revision rounds; enforced round-scoped slate reset in `deliberation_revision_node` plus mandatory post-revision `policy_precheck_node` re-evaluation. | [`tests/test_langgraph_routing.py`](tests/test_langgraph_routing.py)<br>[`ADR-001`](docs/adr/ADR-001-deepseek-architecture-notes.md) |
+| **Qwen 2.5 Coder**<br>*(Python 3.12 Concurrency & Protocol Reviewer)* | File-level mutex locking, `FileLock` deadlock/timeout edge cases, and Pydantic v2 serialization. | Hardened `ledger.py` and `cache.py` with cross-platform `FileLock`, graceful `filelock.Timeout` exception handling, and semantic cache vote-lineage preservation (`CacheEntry` with restored `stakeholder_votes`). | [`tests/test_audit_chain.py`](tests/test_audit_chain.py)<br>[`tests/test_cache.py`](tests/test_cache.py)<br>[`ADR-002`](docs/adr/ADR-002-qwen-compliance-audit.md) |
+| **Cohere North**<br>*(Enterprise CISO & Compliance Auditor)* | Prompt injection vectors, directory traversal, suspended state tampering, and SOC 2 / ISO 27001 auditability. | Enforced `<untrusted_proposal_data>` XML delimiters in Gemini prompts, `Path.is_relative_to()` prompt containment guards, `^[a-zA-Z0-9_-]{1,128}$` `proposal_id` regex validation, and `_state_hmac` disk integrity seals. | [`tests/test_gateway_auth.py`](tests/test_gateway_auth.py) |
+| **Llama Auto-Debugger**<br>*(Chaos & Failure-Mode QA Engineer)* | Malformed HTTP headers, signature truncation/whitespace attacks, and corrupted checkpoint recovery. | Generated adversarial test vectors for malformed `X-Nemawashi-Signature` headers (unsupported prefixes, truncated hex, whitespace), replay prevention, and corrupted suspended state recovery. | [`tests/test_gateway_auth.py`](tests/test_gateway_auth.py)<br>[`ADR-003`](docs/adr/ADR-003-llama-review-notes.md) |
 
 ---
 
@@ -128,7 +128,7 @@ GEMINI.md (Workspace Constitution & Source of Truth)
    │             │
    │             └── docs/URD.md (User Requirements: Personas, RACI, Use Cases, UAC)
    │                    │
-   │                    ├── docs/PRODUCTION_READINESS_REPORT.md (Production Gate Report: GO / 66-of-66)
+   │                    ├── docs/PRODUCTION_READINESS_REPORT.md (Production Gate Report: GO / 100-of-100)
    │                    │
    │                    ├── docs/IMPLEMENTATION_PLAN.md (Phased Engineering Blueprint)
    │                    │
@@ -139,15 +139,15 @@ GEMINI.md (Workspace Constitution & Source of Truth)
 
 | Document | Path | Scope & Description |
 |---|---|---|
-| **Constitution** | [`GEMINI.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/GEMINI.md) | Architectural invariants, locked technology stack, and engineering protocols. |
-| **Prompt Registry** | [`modular_prompt.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/modular_prompt.md) | Centralized index of all active stakeholder prompts in `prompts/` and prompt-loading guards. |
-| **PRR Gate** | [`docs/PRODUCTION_READINESS_REPORT.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRODUCTION_READINESS_REPORT.md) | Production Readiness Review & Test Verification Report — **GO Decision (66/66 Tests Passing)**. |
-| **TRD** | [`docs/TRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/TRD.md) | Exact Pydantic v2 models, LangGraph state channels, routing matrices, and cryptographic formulas. |
-| **PRD** | [`docs/PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md) | Product vision, quantifiable SLAs/KPIs, functional epics, and NFR budgets. |
-| **URD** | [`docs/URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md) | 9 Actor personas, RACI governance matrix, operational use cases (UC-01 to UC-08), and User Acceptance Criteria (UAC-01 to UAC-12). |
-| **Roadmap** | [`docs/IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/IMPLEMENTATION_PLAN.md) | Phased TDD engineering roadmap, vulnerability mitigation matrix, and test verification gates. |
-| **AWS Guide** | [`docs/DEPLOYMENT_AWS.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/DEPLOYMENT_AWS.md) | Step-by-step production deployment on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) with Docker Compose. |
-| **ADR Catalog** | [`docs/adr/`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/adr/) | Architecture Decision Records and multi-model review board syntheses (`ADR-001` through `ADR-006`). |
+| **Constitution** | [`GEMINI.md`](GEMINI.md) | Architectural invariants, locked technology stack, and engineering protocols. |
+| **Prompt Registry** | [`modular_prompt.md`](modular_prompt.md) | Centralized index of all active stakeholder prompts in `prompts/` and prompt-loading guards. |
+| **PRR Gate** | [`docs/PRODUCTION_READINESS_REPORT.md`](docs/PRODUCTION_READINESS_REPORT.md) | Production Readiness Review & Test Verification Report — **GO Decision (100/100 Tests Passing, 90.07% Coverage)**. |
+| **TRD** | [`docs/TRD.md`](docs/TRD.md) | Exact Pydantic v2 models, LangGraph state channels, routing matrices, and cryptographic formulas. |
+| **PRD** | [`docs/PRD.md`](docs/PRD.md) | Product vision, quantifiable SLAs/KPIs, functional epics, and NFR budgets. |
+| **URD** | [`docs/URD.md`](docs/URD.md) | 9 Actor personas, RACI governance matrix, operational use cases (UC-01 to UC-08), and User Acceptance Criteria (UAC-01 to UAC-12). |
+| **Roadmap** | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phased TDD engineering roadmap, vulnerability mitigation matrix, and test verification gates. |
+| **AWS Guide** | [`docs/DEPLOYMENT_AWS.md`](docs/DEPLOYMENT_AWS.md) | Step-by-step production deployment on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) with Docker Compose. |
+| **ADR Catalog** | [`docs/adr/`](docs/adr/) | Architecture Decision Records and multi-model review board syntheses (`ADR-001` through `ADR-006`). |
 
 ---
 
@@ -160,7 +160,7 @@ GEMINI.md (Workspace Constitution & Source of Truth)
 uv venv .venv && source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -r requirements.txt && uv pip install -e .
 
-# 2. Run the locked test suite (66/66 automated tests passing)
+# 2. Run the locked test suite (100/100 automated tests passing, 90.07% coverage)
 pytest tests -v
 
 # 3. Launch the interactive Rich terminal console demo
@@ -193,27 +193,25 @@ docker compose --profile test run --rm test
 
 ## Verification Test Matrix
 
-The engine is backed by **66 automated unit, integration, and scenario tests** across 11 test suites with 100% pass rate:
+The engine is backed by **100 automated unit, integration, and scenario tests** across 11 test suites with 100% pass rate and **90.07% code coverage**:
 
 ```text
 ============================= test session starts ==============================
-platform linux -- Python 3.12.16, pytest-9.2.0, pluggy-1.7.0
-rootdir: /app, configfile: pyproject.toml
-collected 66 items
+collected 100 items
 
-tests/test_agents.py .....                                               [  7%]
-tests/test_audit_chain.py ......                                         [ 16%]
-tests/test_cache.py .....                                                [ 24%]
-tests/test_e2e_scenarios.py .....                                        [ 31%]
-tests/test_gateway_auth.py .........                                     [ 45%]
-tests/test_gemini_schema.py ..                                           [ 48%]
-tests/test_langgraph_routing.py ..........                               [ 63%]
-tests/test_models.py .........                                           [ 77%]
-tests/test_optimizer.py ...                                              [ 81%]
-tests/test_policy_engine.py .....                                        [ 89%]
+tests/test_agents.py .........                                           [  9%]
+tests/test_audit_chain.py ........                                       [ 17%]
+tests/test_cache.py ........                                             [ 25%]
+tests/test_e2e_scenarios.py ......                                       [ 31%]
+tests/test_gateway_auth.py .......................                       [ 54%]
+tests/test_gemini_schema.py ...                                          [ 57%]
+tests/test_langgraph_routing.py ............                             [ 69%]
+tests/test_models.py ...........                                         [ 80%]
+tests/test_optimizer.py ....                                             [ 84%]
+tests/test_policy_engine.py .........                                    [ 93%]
 tests/test_state_reducers.py .......                                     [100%]
 
-============================== 66 passed in 2.35s ==============================
+============================== 100 passed ======================================
 ```
 
 ---

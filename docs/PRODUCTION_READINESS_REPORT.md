@@ -13,7 +13,7 @@
 | **Classification** | Enterprise Confidential / DevSecOps Governance Standard |
 | **Review Board Lead** | Principal AI Systems Architect & Staff DevSecOps Engineer |
 | **Verified Environments** | CPython 3.12.15 (Windows Host `.venv`) & Containerized `python:3.12-slim` (Linux) |
-| **Test Suite Baseline** | **66 / 66 Automated Tests Passing (100% Pass Rate)** |
+| **Test Suite Baseline** | **100 / 100 Automated Tests Passing (100% Pass Rate, 90.07% Coverage)** |
 | **Audit Date** | 2026-11-12 |
 
 ---
@@ -32,29 +32,29 @@ The Nemawashi Governance Engine underwent comprehensive pre-flight verification 
 | **6. Mutex Concurrency** | Thread/process-safe file locking for chained ledger writes and vector cache lookups. | **PASS** | `filelock.FileLock` timeout protection (10.0s) serializes concurrent commits and catches `filelock.Timeout` raising clean `RuntimeError` (`tests/test_audit_chain.py`, `tests/test_cache.py`). |
 | **7. HITL Gateway Security** | Non-blocking execution suspension and mandatory cryptographic callback authentication. | **PASS** | `POST /resume` enforces constant-time HMAC-SHA256 signature verification (`hmac.compare_digest`), regex validation `^[a-zA-Z0-9_-]{1,128}$` on proposal IDs, and disk-level `_state_hmac` tampering checks (`tests/test_gateway_auth.py`). |
 | **8. Container & CI/CD Parity** | Production Docker containerization, healthcheck probes, and zero-cost offline CI workflow. | **PASS** | `Dockerfile` runs as unprivileged user `USER nemawashi` (`UID 10001`), defines stdlib `HEALTHCHECK`, and matches `docker-compose.yml`. GitHub Actions executes dual-stage offline unit tests and container verification (`.github/workflows/ci.yml`). |
-| **9. Documentation Triad & ADRs** | Fully synchronized documentation triad, architecture decision records, and cloud runbook. | **PASS** | [`docs/TRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/TRD.md), [`docs/PRD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/PRD.md), [`docs/URD.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/URD.md), [`docs/IMPLEMENTATION_PLAN.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/IMPLEMENTATION_PLAN.md), [`docs/DEPLOYMENT_AWS.md`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/docs/DEPLOYMENT_AWS.md), and `ADR-001` through `ADR-006` verified with 100% link integrity. |
-| **10. Automated Regression Baseline** | Complete automated test coverage across all layers with 100% pass rate in dev and container runtimes. | **PASS** | **66 / 66 tests passing** across 11 test suites in 2.86s (local) and 2.71s (Docker `python:3.12-slim`). Zero failing or skipped tests. |
+| **9. Documentation Triad & ADRs** | Fully synchronized documentation triad, architecture decision records, and cloud runbook. | **PASS** | [`docs/TRD.md`](TRD.md), [`docs/PRD.md`](PRD.md), [`docs/URD.md`](URD.md), [`docs/IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), [`docs/DEPLOYMENT_AWS.md`](DEPLOYMENT_AWS.md), and `ADR-001` through `ADR-006` verified with 100% link integrity. |
+| **10. Automated Regression Baseline** | Complete automated test coverage across all layers with 100% pass rate in dev and container runtimes. | **PASS** | **100 / 100 tests passing (90.07% coverage)** across 11 test suites. Zero failing or skipped tests. |
 
 ---
 
-## 2. Test Suite & Security Verification Matrix (66 Automated Tests)
+## 2. Test Suite & Security Verification Matrix (100 Automated Tests)
 
 The test suite covers data contracts, policy rules, vector search, cryptography, state orchestration, persona directives, and gateway security across **11 dedicated test modules**:
 
 | # | Test Module | Target Architecture | Test Count | Core Invariants Verified | Pass Status |
 |:---:|---|---|:---:|---|:---:|
-| **1** | [`tests/test_models.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_models.py) | Data Contracts & Schemas | **9** | Pydantic v2 `ConfigDict(extra="forbid", frozen=True)`, `StructuredAgentVote` validation, pricing grid unit economics, `AuditRecord` completeness. | **100% PASS** |
-| **2** | [`tests/test_state_reducers.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_state_reducers.py) | Monomorphic State Channels | **7** | `append_vote` monomorphic type enforcement (rejects lists with `TypeError`), zero consensus amnesia, defensive deep-copying, token/cost accumulation. | **100% PASS** |
-| **3** | [`tests/test_policy_engine.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_policy_engine.py) | Declarative Rule Gatekeeper | **5** | Hard spending ceiling (\$5,000.00 VETO), blacklisted action types, protected resource substrings, `<5ms` deterministic policy pre-checks. | **100% PASS** |
-| **4** | [`tests/test_cache.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_cache.py) | Semantic Vector Cache | **5** | 64-dimensional cosine similarity ($\ge 0.95$), 24-hour TTL expiry, `enterprise_rules.json` hash invalidation, `stakeholder_votes` lineage restoration, `FileLock` concurrency. | **100% PASS** |
-| **5** | [`tests/test_audit_chain.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_audit_chain.py) | Chained SHA-256 Ledger | **6** | Genesis block linkage, forward SHA-256 hash chaining, single-byte tamper detection, cross-platform `FileLock` mutex locking, clean `filelock.Timeout` exception handling. | **100% PASS** |
-| **6** | [`tests/test_agents.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_agents.py) | Stakeholder Personas | **5** | Domain mandate evaluation for Security, Compliance, FinOps, and SRE; token accounting; offline deterministic rule-based evaluation. | **100% PASS** |
-| **7** | [`tests/test_optimizer.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_optimizer.py) | Cloud Resource Rightsizing | **3** | Dynamic compute spot/preemptible conversion, gp3 storage rightsizing, automated idle shutdown schedules, 30%–55% cost reductions. | **100% PASS** |
-| **8** | [`tests/test_langgraph_routing.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_langgraph_routing.py) | LangGraph Orchestration | **10** | Sequential consensus routing, mitigation watchdog circuit breaker (`current_round > max_rounds`), round slate reset (`stakeholder_votes: {}`), post-revision policy re-check. | **100% PASS** |
-| **9** | [`tests/test_gemini_schema.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_gemini_schema.py) | Gemini Structured Outputs | **2** | Native `response_schema` schema compliance with Google GenAI SDK, strict JSON contract adherence without markdown codeblock leakage. | **100% PASS** |
-| **10** | [`tests/test_gateway_auth.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_gateway_auth.py) | Ingress Security & Anti-Tamper | **9** | Mandatory HMAC-SHA256 signature verification on `POST /resume`, HTTP 401 on malformed/truncated signatures, `^[a-zA-Z0-9_-]{1,128}$` path-traversal blocking, `_state_hmac` disk tamper detection, prompt traversal containment. | **100% PASS** |
-| **11** | [`tests/test_e2e_scenarios.py`](file:///C:/WWORKING_folder/ProjectFolders/Nemawashi-Governance-Engine/tests/test_e2e_scenarios.py) | End-to-End Governance Scenarios | **5** | Full lifecycle testing across Unanimous Consensus, Conditional Alignment, Immediate Veto, Asynchronous HITL Resumption, and Ledger Verification. | **100% PASS** |
-| **TOTAL** | **Comprehensive Regression Suite** | **11 Modules** | **66** | **All Invariants Verified Across Python 3.12 Host & Docker Container** | **100% PASS** |
+| **1** | [`tests/test_models.py`](../tests/test_models.py) | Data Contracts & Schemas | **11** | Pydantic v2 `ConfigDict(extra="forbid", frozen=True)`, `StructuredAgentVote` validation, pricing grid unit economics, `AuditRecord` completeness. | **100% PASS** |
+| **2** | [`tests/test_state_reducers.py`](../tests/test_state_reducers.py) | Monomorphic State Channels | **7** | `append_vote` monomorphic type enforcement (rejects lists with `TypeError`), zero consensus amnesia, defensive deep-copying, token/cost accumulation. | **100% PASS** |
+| **3** | [`tests/test_policy_engine.py`](../tests/test_policy_engine.py) | Declarative Rule Gatekeeper | **9** | Hard spending ceiling (\$5,000.00 VETO), blacklisted action types, protected resource substrings, NFKC normalization, fail-closed catalog validation. | **100% PASS** |
+| **4** | [`tests/test_cache.py`](../tests/test_cache.py) | Semantic Vector Cache | **8** | 64-dimensional SHA-256 cosine similarity ($\ge 0.95$), 24-hour TTL expiry & pruning, `enterprise_rules.json` hash invalidation, `stakeholder_votes` lineage restoration, `FileLock` concurrency. | **100% PASS** |
+| **5** | [`tests/test_audit_chain.py`](../tests/test_audit_chain.py) | Chained SHA-256 Ledger | **8** | Genesis block linkage, forward SHA-256 hash chaining, single-byte tamper detection, rotation/retention quotas, cross-platform `FileLock` mutex locking. | **100% PASS** |
+| **6** | [`tests/test_agents.py`](../tests/test_agents.py) | Stakeholder Personas | **9** | Domain mandate evaluation for Security, Compliance, FinOps, and SRE; XML breakout sanitization; token/cost circuit breakers; offline deterministic rule-based evaluation. | **100% PASS** |
+| **7** | [`tests/test_optimizer.py`](../tests/test_optimizer.py) | Cloud Resource Rightsizing | **4** | Dynamic compute spot/preemptible conversion, gp3 storage rightsizing, automated idle shutdown schedules, immutable `model_copy` updates. | **100% PASS** |
+| **8** | [`tests/test_langgraph_routing.py`](../tests/test_langgraph_routing.py) | LangGraph Orchestration | **12** | Sequential consensus routing, mitigation watchdog circuit breaker (`current_round > max_rounds`), round slate reset (`stakeholder_votes: {}`), multi-round `requires_revision` routing. | **100% PASS** |
+| **9** | [`tests/test_gemini_schema.py`](../tests/test_gemini_schema.py) | Gemini Structured Outputs | **3** | Native `response_schema` schema compliance with Google GenAI SDK, OpenAPI 3.0 `clean_gemini_schema()` sanitization. | **100% PASS** |
+| **10** | [`tests/test_gateway_auth.py`](../tests/test_gateway_auth.py) | Ingress Security & Anti-Tamper | **23** | Mandatory HMAC-SHA256 canonical JSON signature verification on `POST /resume`, TTL & nonce anti-replay, 10MB body limit (HTTP 413), `^[a-zA-Z0-9_-]{1,128}$` path-traversal blocking, `_state_hmac` disk tamper detection, concurrent resume locking. | **100% PASS** |
+| **11** | [`tests/test_e2e_scenarios.py`](../tests/test_e2e_scenarios.py) | End-to-End Governance Scenarios | **6** | Full lifecycle testing across Unanimous Consensus, Conditional Alignment, Immediate Veto, Asynchronous HITL Resumption, multi-round `vote_history` lineage, and Ledger Verification. | **100% PASS** |
+| **TOTAL** | **Comprehensive Regression Suite** | **11 Modules** | **100** | **All Invariants Verified (90.07% Coverage)** | **100% PASS** |
 
 ---
 
@@ -116,6 +116,6 @@ To eliminate single-model blind spots, five specialized LLM review personas were
 RELEASE DECISION: GO (UNCONDITIONAL APPROVAL)
 System Version: 1.0.0
 Git Commit: eb63caa
-Verification: 66/66 Automated Tests Passing (100%)
+Verification: 100/100 Automated Tests Passing (100%, 90.07% Coverage)
 Status: Ready for Production Deployment
 ```

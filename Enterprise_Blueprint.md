@@ -94,7 +94,7 @@ Every module and remediation ticket in `nemawashi-governance-engine` must satisf
 ### Phase 5: Multi-Round Orchestration, Doc/Docker Sync & Final Audit
 - [x] **5.1 Multi-Round Revision & Audit Lineage (`REM-010` / `BUILD-PROMPT-08`):** Fix `ConsensusArbiterAgent.synthesize` `requires_revision` logic and preserve multi-round `votes` lineage in `AuditRecord`.
 - [x] **5.2 Documentation, Prompt Registry & Docker Hardening (`REM-011` / `BUILD-PROMPT-09`):** Create `modular_prompt.md`, resolve missing prompt refs and unused `enterprise_rules.json` keys, update `Dockerfile` `HEALTHCHECK` to `/health`, and sync `README.md`, `docs/TRD.md`, and `docs/IMPLEMENTATION_PLAN.md`.
-- [ ] **5.3 Final Adversarial Audit & Release Sign-Off (`BUILD-PROMPT-10`):** Run full `ruff`, `mypy`, `pytest --cov=src/nemawashi --cov-fail-under=90`, and `docker compose` verification, confirming 0 open tickets in `AUDIT_REMEDIATION_LOG.md`.
+- [x] **5.3 Final Adversarial Audit & Release Sign-Off (`BUILD-PROMPT-10`):** Run full `ruff`, `mypy`, `pytest --cov=src/nemawashi --cov-fail-under=90`, and `docker compose` verification, confirming 0 open tickets in `AUDIT_REMEDIATION_LOG.md`.
 
 ---
 

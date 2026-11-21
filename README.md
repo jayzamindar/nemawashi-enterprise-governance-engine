@@ -1,14 +1,29 @@
 # Nemawashi: Enterprise Multi-Agent Governance Engine
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![CI Pipeline](https://github.com/jayzamindar/nemawashi-enterprise-governance-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/jayzamindar/nemawashi-enterprise-governance-engine/actions/workflows/ci.yml)
+[![Release v1.1.0](https://img.shields.io/badge/Release-v1.1.0-blue.svg)](https://github.com/jayzamindar/nemawashi-enterprise-governance-engine/releases/tag/v1.1.0)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB.svg)](https://www.python.org/downloads/)
+[![Coverage 90.07%](https://img.shields.io/badge/Coverage-90.07%25-brightgreen.svg)](docs/PRODUCTION_READINESS_REPORT.md)
 [![LangGraph](https://img.shields.io/badge/Orchestrator-LangGraph-purple.svg)](https://github.com/langchain-ai/langgraph)
 [![Pydantic v2](https://img.shields.io/badge/Data_Contracts-Pydantic_v2-red.svg)](https://docs.pydantic.dev/)
 [![FastAPI](https://img.shields.io/badge/API_Gateway-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![Docker](https://img.shields.io/badge/Container-Docker_Compose-2496ED.svg)](https://www.docker.com/)
-[![AWS Free Tier](https://img.shields.io/badge/Cloud-AWS_EC2_Free_Tier-FF9900.svg)](https://aws.amazon.com/free/)
-[![Tests](https://img.shields.io/badge/Tests-100%2F100_Passing-brightgreen.svg)](tests/)
+[![Gemini 2.5 Flash](https://img.shields.io/badge/LLM-Gemini_2.5_Flash-4285F4.svg)](https://ai.google.dev/)
+[![Multi-Cloud AWS & Azure](https://img.shields.io/badge/Cloud-AWS_%26_Azure-FF9900.svg)](docs/DEPLOYMENT_AWS.md)
 
 An enterprise-grade governance engine that implements **Nemawashi** (根回し) — the authentic Japanese organizational consensus-building process — across autonomous agent swarms before any production, financial, or sensitive cloud infrastructure mutation occurs.
+
+---
+
+## Verification & Release Status (`v1.1.0` — Production Certified)
+
+| Verification Dimension | Verified Metric / Gate | Status | Evidence Artifact |
+|---|---|---|---|
+| **Release Tag** | `v1.1.0` (Multi-Cloud Packaging & Governance Hub) | Certified | [PRODUCTION_READINESS_REPORT.md](docs/PRODUCTION_READINESS_REPORT.md) |
+| **Automated Test Suite** | `100 passed` across 11 suites (`pytest-timeout=15s`) | 100% Pass | [tests/](tests/) |
+| **Code Coverage Gate** | `90.07%` (`--cov-fail-under=90` enforced) | Passed | [pyproject.toml](pyproject.toml) |
+| **Remediation Backlog** | `REM-001` through `REM-011` (`0` open tickets) | 100% Mitigated | [AUDIT_REMEDIATION_LOG.md](AUDIT_REMEDIATION_LOG.md) |
+| **CI/CD & Container Parity** | Live GitHub Actions CI + `python:3.12-slim` (`UID 10001`) | Passing | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| **Cloud Deployment Targets** | AWS (EC2 Free Tier + ECS Fargate/EFS) & Azure (ACA + AKS) | Ready | [DEPLOYMENT_AWS.md](docs/DEPLOYMENT_AWS.md) \| [DEPLOYMENT_AZURE.md](docs/DEPLOYMENT_AZURE.md) |
 
 ---
 
@@ -83,27 +98,25 @@ flowchart TD
 
 ## Security & Engineering Invariants
 
-| Architectural Invariant | Implementation Mechanism | Enterprise Guarantee |
-|---|---|---|
-| **Zero Consensus Amnesia** | `typing.Annotated[List[StructuredAgentVote], append_vote]` | Monomorphic reducer strictly rejects collections with `TypeError` and deep-copies inputs; upstream votes can never be overwritten. |
-| **Bounded Execution Watchdog** | `consensus_router` evaluates `current_round > max_rounds` first | Circuit breaker trips instantly when deliberation iterations exceed ceiling, halting runaway agent loops and preventing API token exhaustion. |
-| **Zero Conversational Chatter** | `StructuredAgentVote(ConfigDict(extra="forbid", frozen=True))` | Eliminates free-form natural language strings between agents; all inter-agent reviews are structured, strongly typed, and deterministic. |
-| **Prompt Injection Delimiting** | Enclosed within `<untrusted_proposal_data>` blocks | LLMs are instructed to treat proposal content strictly as untrusted external data, neutralizing embedded prompt overrides or jailbreaks. |
-| **Cross-Platform Mutex Concurrency** | `filelock.FileLock(f"{target_path}.lock", timeout=10.0)` | Serializes concurrent ledger commits and vector cache I/O across threads/processes on POSIX and Windows, handling timeouts cleanly. |
-| **Semantic Cache Vote Lineage** | `CacheEntry` stores `resolution` and `stakeholder_votes` mapping | Restores historical votes and sets `cache_hit = True` in `AuditRecord` on vector hit ($\ge 0.95$), saving 100% of LLM costs while preserving auditability. |
-| **Cryptographic HITL Callback** | `POST /resume` enforces `hmac.compare_digest` on HMAC-SHA256 | Non-blocking execution suspension with state disk HMAC verification (`_state_hmac`) and path-traversal regex validation (`^[a-zA-Z0-9_-]{1,128}$`). |
-| **Cloud-Native Volume Portability** | Configurable runtime paths (`NEMAWASHI_AUDIT_LOG_DIR`, etc.) | Docker containers run under unprivileged user (`UID 10001`), binding persistent state to host EBS volumes on AWS EC2 Free Tier. |
-| **Zero-Cost Dual Execution** | Live Gemini 2.5 Flash with deterministic offline fallback | Runs fully live when `GEMINI_API_KEY` is present; seamlessly falls back to deterministic rule-based evaluation in CI/CD without API spend. |
+| Architectural Invariant | Implementation Mechanism | Enterprise Guarantee | Source Reference |
+|---|---|---|---|
+| **Zero Consensus Amnesia** | `typing.Annotated[List[StructuredAgentVote], append_vote]` | Monomorphic reducer strictly rejects collections with `TypeError` and deep-copies inputs; upstream votes can never be overwritten. | [`state.py`](src/nemawashi/core/state.py) |
+| **Bounded Execution Watchdog** | `consensus_router` evaluates `current_round > max_rounds` first | Circuit breaker trips instantly when deliberation iterations exceed ceiling, halting runaway agent loops and preventing API token exhaustion. | [`graph.py`](src/nemawashi/core/graph.py) |
+| **Zero Conversational Chatter** | `StructuredAgentVote(ConfigDict(extra="forbid", frozen=True))` | Eliminates free-form natural language strings between agents; all inter-agent reviews are structured, strongly typed, and deterministic. | [`models.py`](src/nemawashi/core/models.py) |
+| **Prompt Injection Delimiting** | Enclosed within `<untrusted_proposal_data>` blocks | LLMs are instructed to treat proposal content strictly as untrusted external data, neutralizing embedded prompt overrides or jailbreaks. | [`base.py`](src/nemawashi/agents/base.py) |
+| **Cross-Platform Mutex Concurrency** | `filelock.FileLock(f"{target_path}.lock", timeout=10.0)` | Serializes concurrent ledger commits and vector cache I/O across threads/processes on POSIX and Windows, handling timeouts cleanly. | [`ledger.py`](src/nemawashi/audit/ledger.py) |
+| **Semantic Cache Vote Lineage** | `CacheEntry` stores `resolution` and `stakeholder_votes` mapping | Restores historical votes and sets `cache_hit = True` in `AuditRecord` on vector hit ($\ge 0.95$), saving 100% of LLM costs while preserving auditability. | [`cache.py`](src/nemawashi/core/cache.py) |
+| **Cryptographic HITL Callback** | `POST /resume` enforces `hmac.compare_digest` on canonical JSON | Non-blocking execution suspension with state disk HMAC verification (`_state_hmac`), TTL ($\le 300\text{s}$), nonce anti-replay, and `^[a-zA-Z0-9_-]{1,128}$` validation. | [`main.py`](src/nemawashi/main.py) |
+| **Cloud-Native Volume Portability** | Configurable runtime paths (`NEMAWASHI_AUDIT_LOG_DIR`, etc.) | Docker containers run under unprivileged user (`UID 10001`), binding persistent state to host EBS/EFS or Azure Files volumes. | [`Dockerfile`](Dockerfile) |
+| **Zero-Cost Dual Execution** | Live Gemini 2.5 Flash with deterministic offline fallback | Runs fully live when `GEMINI_API_KEY` is present; seamlessly falls back to deterministic rule-based evaluation in CI/CD without API spend. | [`GEMINI.md`](GEMINI.md) |
 
 ---
 
 ## Multi-Model Adversarial Engineering & Verification Board
 
-Production-grade AI governance architectures cannot rely on single-model consensus or unvalidated code generation. In high-consequence enterprise environments, blind spots in state machine transitions, concurrent file I/O, prompt handling, and cryptographic verification can lead to catastrophic infrastructure breaches.
+Production-grade AI governance architectures cannot rely on single-model consensus or unvalidated code generation. Every architectural contract, state transition, cryptographic boundary, and failure mode in the Nemawashi Governance Engine was subjected to **multi-model adversarial red-teaming** prior to production release.
 
-To guarantee zero-defect reliability, every architectural contract, state transition, cryptographic boundary, and failure mode in the Nemawashi Governance Engine was subjected to **multi-model adversarial red-teaming** prior to production release. Specialized Frontier and Open-Weights models were assigned distinct adversarial roles to audit logic, probe protocol edge cases, and challenge security invariants.
-
-All critical vulnerabilities identified during this review process have been systematically mitigated, documented in our [ADR Catalog](docs/adr/), and permanently guarded behind our baseline of **100 automated regression tests** (90.07% coverage).
+All critical vulnerabilities identified during this review process have been systematically mitigated, documented in our [ADR Catalog](docs/adr/ADR-001-deepseek-architecture-notes.md), and permanently guarded behind our baseline of **100 automated regression tests** (90.07% coverage).
 
 | Model & Role | Adversarial Audit Focus | Critical Finding Caught & Hardened | Verification Artifact |
 |---|---|---|---|
@@ -115,42 +128,54 @@ All critical vulnerabilities identified during this review process have been sys
 
 ---
 
-## Master Documentation Hierarchy
+## Master Documentation & Governance Navigation Index
 
 All technical contracts, specifications, and architecture decisions adhere to our document precedence hierarchy:
 
-```
+```text
 GEMINI.md (Workspace Constitution & Source of Truth)
    │
+   ├── Enterprise_Blueprint.md (Master Production Blueprint & 10 DoD Tenets)
+   │      ├── PROJECT_MAP.md (Repository File-to-Responsibility Index)
+   │      ├── BUILD_PROMPTS.md (Deterministic Build Playbook)
+   │      ├── AUDIT_REMEDIATION_LOG.md (Forensic Ticket Registry REM-001..REM-011)
+   │      └── modular_prompt.md (Stakeholder Prompt Registry)
+   │
    ├── docs/TRD.md (Technical Requirements: Schemas, State Channels, Mutex, HMAC)
-   │      │
    │      └── docs/PRD.md (Product Requirements: Goals, KPIs, Scope, Compliance)
-   │             │
    │             └── docs/URD.md (User Requirements: Personas, RACI, Use Cases, UAC)
-   │                    │
-   │                    ├── docs/PRODUCTION_READINESS_REPORT.md (Production Gate Report: GO / 100-of-100)
-   │                    │
-   │                    ├── docs/IMPLEMENTATION_PLAN.md (Phased Engineering Blueprint)
-   │                    │
-   │                    ├── docs/DEPLOYMENT_AWS.md (AWS EC2 Free Tier & ECS Fargate + EFS Guide)
-   │                    │
-   │                    ├── docs/DEPLOYMENT_AZURE.md (Azure Container Apps & AKS Deployment Guide)
-   │                    │
-   │                    └── docs/adr/ (Architecture Decision Records ADR-001..006)
+   │
+   ├── docs/PRODUCTION_READINESS_REPORT.md (Production Gate Report: GO / 100-of-100)
+   ├── docs/IMPLEMENTATION_PLAN.md (Phased Engineering Blueprint)
+   ├── docs/DEPLOYMENT_AWS.md (AWS EC2 Free Tier & ECS Fargate + EFS Guide)
+   ├── docs/DEPLOYMENT_AZURE.md (Azure Container Apps & AKS Deployment Guide)
+   └── docs/adr/ (Architecture Decision Records ADR-001..006)
 ```
 
-| Document | Path | Scope & Description |
+### Hyperlinked Navigation Table
+
+| Category | Document | Scope & Description |
 |---|---|---|
-| **Constitution** | [`GEMINI.md`](GEMINI.md) | Architectural invariants, locked technology stack, and engineering protocols. |
-| **Prompt Registry** | [`modular_prompt.md`](modular_prompt.md) | Centralized index of all active stakeholder prompts in `prompts/` and prompt-loading guards. |
-| **PRR Gate** | [`docs/PRODUCTION_READINESS_REPORT.md`](docs/PRODUCTION_READINESS_REPORT.md) | Production Readiness Review & Test Verification Report — **GO Decision (100/100 Tests Passing, 90.07% Coverage)**. |
-| **TRD** | [`docs/TRD.md`](docs/TRD.md) | Exact Pydantic v2 models, LangGraph state channels, routing matrices, and cryptographic formulas. |
-| **PRD** | [`docs/PRD.md`](docs/PRD.md) | Product vision, quantifiable SLAs/KPIs, functional epics, and NFR budgets. |
-| **URD** | [`docs/URD.md`](docs/URD.md) | 9 Actor personas, RACI governance matrix, operational use cases (UC-01 to UC-08), and User Acceptance Criteria (UAC-01 to UAC-12). |
-| **Roadmap** | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phased TDD engineering roadmap, vulnerability mitigation matrix, and test verification gates. |
-| **AWS Guide** | [`docs/DEPLOYMENT_AWS.md`](docs/DEPLOYMENT_AWS.md) | Production deployment on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) and serverless AWS ECS Fargate + EFS. |
-| **Azure Guide** | [`docs/DEPLOYMENT_AZURE.md`](docs/DEPLOYMENT_AZURE.md) | Production deployment on Azure Container Apps (ACA) and AKS with ACR, Azure Files (`UID 10001`), and Key Vault. |
-| **ADR Catalog** | [`docs/adr/`](docs/adr/) | Architecture Decision Records and multi-model review board syntheses (`ADR-001` through `ADR-006`). |
+| **Constitution** | [GEMINI.md](GEMINI.md) | Architectural invariants, locked technology stack, and engineering protocols. |
+| **Blueprint** | [Enterprise_Blueprint.md](Enterprise_Blueprint.md) | Master production blueprint, 10 DoD tenets, and phased remediation roadmap. |
+| **Repository Map** | [PROJECT_MAP.md](PROJECT_MAP.md) | Compact architectural index mapping every directory, module, and test suite. |
+| **Build Playbook** | [BUILD_PROMPTS.md](BUILD_PROMPTS.md) | Ordered, self-contained build prompts (`BUILD-PROMPT-01` through `BUILD-PROMPT-10`). |
+| **Audit Log** | [AUDIT_REMEDIATION_LOG.md](AUDIT_REMEDIATION_LOG.md) | Sequential forensic remediation tickets (`REM-001` through `REM-011`) — 0 open. |
+| **Prompt Registry** | [modular_prompt.md](modular_prompt.md) | Centralized index of all active stakeholder prompts in [`prompts/`](prompts/) and loading guards. |
+| **PRR Gate** | [docs/PRODUCTION_READINESS_REPORT.md](docs/PRODUCTION_READINESS_REPORT.md) | Production Readiness Review & Test Verification Report — **GO (100/100 Tests, 90.07% Coverage)**. |
+| **TRD** | [docs/TRD.md](docs/TRD.md) | Exact Pydantic v2 models, LangGraph state channels, routing matrices, and cryptographic formulas. |
+| **PRD** | [docs/PRD.md](docs/PRD.md) | Product vision, quantifiable SLAs/KPIs, functional epics, and NFR budgets. |
+| **URD** | [docs/URD.md](docs/URD.md) | 9 Actor personas, RACI governance matrix, operational use cases (UC-01 to UC-08), and UAC-01 to UAC-12. |
+| **Roadmap** | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Phased TDD engineering roadmap, vulnerability mitigation matrix, and test verification gates. |
+| **AWS Deployment** | [docs/DEPLOYMENT_AWS.md](docs/DEPLOYMENT_AWS.md) | Production deployment on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) and serverless AWS ECS Fargate + EFS. |
+| **Azure Deployment** | [docs/DEPLOYMENT_AZURE.md](docs/DEPLOYMENT_AZURE.md) | Production deployment on Azure Container Apps (ACA) and AKS with ACR, Azure Files (`UID 10001`), and Key Vault. |
+| **Containers & CI** | [Dockerfile](Dockerfile) \| [docker-compose.yml](docker-compose.yml) \| [docker-compose.prod.yml](docker-compose.prod.yml) \| [.github/workflows/ci.yml](.github/workflows/ci.yml) | Non-root (`UID 10001`) `python:3.12-slim` image, local/prod compose stacks, and GitHub Actions CI pipeline. |
+| **ADR-001** | [docs/adr/ADR-001-deepseek-architecture-notes.md](docs/adr/ADR-001-deepseek-architecture-notes.md) | DeepSeek R1 hostile logic & state-machine revision loop audit notes. |
+| **ADR-002** | [docs/adr/ADR-002-qwen-compliance-audit.md](docs/adr/ADR-002-qwen-compliance-audit.md) | Qwen 2.5 Coder concurrency, `FileLock`, and cache lineage audit notes. |
+| **ADR-003** | [docs/adr/ADR-003-llama-review-notes.md](docs/adr/ADR-003-llama-review-notes.md) | Llama Auto-Debugger chaos & malformed HMAC header edge-case notes. |
+| **ADR-004** | [docs/adr/ADR-004-sequential-nemawashi-consensus.md](docs/adr/ADR-004-sequential-nemawashi-consensus.md) | Sequential Nemawashi consensus topology and bounded deliberation design. |
+| **ADR-005** | [docs/adr/ADR-005-monomorphic-state-reducers.md](docs/adr/ADR-005-monomorphic-state-reducers.md) | Monomorphic `Annotated` state reducers and zero consensus amnesia guarantee. |
+| **ADR-006** | [docs/adr/ADR-006-async-hmac-hitl-gateway.md](docs/adr/ADR-006-async-hmac-hitl-gateway.md) | Asynchronous HMAC-SHA256 HITL gateway, canonical JSON, and anti-replay design. |
 
 ---
 
@@ -219,6 +244,13 @@ tests/test_state_reducers.py .......                                     [100%]
 
 ============================== 100 passed ======================================
 ```
+
+---
+
+## Architectural Boundaries & Production Scaling Path
+
+- **Current Design Boundary (Single-Writer `FileLock` + JSONL):** Nemawashi v1.1.0 deliberately avoids external database dependencies by using POSIX/Windows `filelock.FileLock` over a chained SHA-256 JSONL ledger (`nemawashi_ledger.jsonl`), local semantic vector cache, and HMAC-signed suspended state files. In cloud deployments (AWS ECS Fargate + EFS or Azure Container Apps + Azure Files), run **1 active writer replica** (`desiredCount: 1` / `max-replicas: 1`) mounted to persistent shared storage (`UID 10001`).
+- **Multi-Pod Horizontal Scaling Path:** Scaling beyond a single active gateway replica requires migrating the chained ledger, semantic cache, and HITL checkpoint store from local `FileLock`-guarded files to a distributed ACID backend (e.g., PostgreSQL with advisory locks or DynamoDB conditional writes) while keeping the FastAPI `/resume` nonce cache in Redis.
 
 ---
 

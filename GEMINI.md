@@ -84,6 +84,8 @@ When resolving ambiguity, follow this strict precedence:
 7. `docs/URD.md` (User Requirements: personas, RACI, operational use cases)
 8. `docs/IMPLEMENTATION_PLAN.md` (Original engineering roadmap & verification checklist)
 
+- **Hyperlinked Master Navigation Hub Standard (`README.md`):** `README.md` MUST serve as a **100% hyperlinked Master Navigation Hub** with clickable relative Markdown links (`[Title](path/to/file.md)`) for every governance, specification, audit, deployment, container/CI, and ADR document in the repository, verified programmatically to have zero broken links.
+
 ---
 
 ## 5. Execution Protocol, 3-Strike Circuit Breaker & Session Handover

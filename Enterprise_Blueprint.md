@@ -64,6 +64,7 @@ Every module and remediation ticket in `nemawashi-governance-engine` must satisf
 
 10. **Cross-Document Synchronization & Zero-Drift Governance:**
     - `README.md`, `PROJECT_MAP.md`, `modular_prompt.md`, `docs/TRD.md`, `docs/PRD.md`, `docs/URD.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/DEPLOYMENT_AWS.md`, `docs/DEPLOYMENT_AZURE.md`, `Dockerfile`, `docker-compose.yml`, and `docker-compose.prod.yml` MUST remain 100% synchronized with the shipped codebase, with zero dead links or `TODO`/`TBD` placeholders.
+    - `README.md` MUST serve as a **100% hyperlinked Master Navigation Hub** with clickable relative Markdown links (`[Title](path/to/file.md)`) for every governance, specification, audit, deployment, container/CI, and ADR document in the repository.
 
 ---
 

@@ -210,25 +210,41 @@ Verify that the `POST /resume` endpoint rejects unsigned requests and accepts va
 
 ```bash
 # 1. Test missing signature (must return HTTP 401 Unauthorized)
+NOW=$(date +%s)
+EXPIRES=$((NOW + 300))
 curl -i -X POST http://localhost:8000/resume \
   -H "Content-Type: application/json" \
-  -d '{"proposal_id": "p-demo-01", "approved": true, "rationale": "Direct unauthorized attempt"}'
+  -d "{\"proposal_id\":\"p-demo-01\",\"approved\":true,\"rationale\":\"Direct unauthorized attempt\",\"issued_at\":${NOW},\"expires_at\":${EXPIRES},\"nonce\":\"unauth-test-01\"}"
 
-# 2. Compute valid signature using your NEMAWASHI_WEBHOOK_SECRET
-SECRET=$(grep NEMAWASHI_WEBHOOK_SECRET .env | cut -d '=' -f2)
-PROPOSAL_ID="p-demo-01"
-APPROVED="true"
-RATIONALE="Authorized by VP of Infrastructure after review"
-MESSAGE="${PROPOSAL_ID}:${APPROVED}:${RATIONALE}"
+# 2. Compute valid canonical JSON HMAC-SHA256 signature using NEMAWASHI_WEBHOOK_SECRET
+SECRET=$(grep '^NEMAWASHI_WEBHOOK_SECRET=' .env | cut -d '=' -f2-)
+eval "$(python3 - "$SECRET" <<'PYEOF'
+import hashlib, hmac, json, sys, time, uuid
 
-SIGNATURE=$(echo -n "$MESSAGE" | openssl dgst -sha256 -hmac "$SECRET" | cut -d ' ' -f2)
-echo "Generated Signature: sha256=$SIGNATURE"
+secret = sys.argv[1]
+issued_at = float(int(time.time()))
+expires_at = issued_at + 300.0  # <= 300s TTL enforced by gateway
+payload = {
+    "proposal_id": "p-demo-01",
+    "approved": True,
+    "rationale": "Authorized by VP of Infrastructure after review",
+    "issued_at": issued_at,
+    "expires_at": expires_at,
+    "nonce": uuid.uuid4().hex,
+}
+canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+sig = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+print(f"PAYLOAD='{canonical}'")
+print(f"SIGNATURE='{sig}'")
+PYEOF
+)"
+echo "Generated Signature: sha256=${SIGNATURE}"
 
-# 3. Test valid signature transmission
+# 3. Test valid signature transmission (must return HTTP 200 OK if p-demo-01 is suspended)
 curl -i -X POST http://localhost:8000/resume \
   -H "Content-Type: application/json" \
   -H "X-Nemawashi-Signature: sha256=${SIGNATURE}" \
-  -d "{\"proposal_id\": \"${PROPOSAL_ID}\", \"approved\": true, \"rationale\": \"${RATIONALE}\"}"
+  -d "${PAYLOAD}"
 ```
 
 ---
@@ -248,6 +264,28 @@ To ensure zero unwanted AWS billing while running 24/7 on the Free Tier:
 - [x] **EBS Volume Allocation**: Total EBS volume size across the account is $\le 30\text{ GiB}$ (our instance uses 15 GiB).
 - [x] **Elastic IP Addresses**: Do NOT allocate an unattached Elastic IP (AWS charges for unused Elastic IPs). Use the auto-assigned public IP or DNS.
 - [x] **Data Transfer Out**: Free tier includes 100 GB of internet data transfer out per month. JSON payload traffic will consume $< 100\text{MB}$ monthly.
+
+---
+
+## Option B: Serverless AWS ECS Fargate + EFS Persistent Storage
+
+For teams preferring a managed serverless container runtime over an EC2 VM, deploy the exact same non-root (`UID 10001`) image on **AWS ECS Fargate** backed by **Amazon EFS**.
+
+> [!IMPORTANT]
+> **Why EFS is required over ephemeral AWS App Runner / Fargate task storage:**
+> Nemawashi relies on `FileLock`-synchronized JSONL append writes (`nemawashi_ledger.jsonl`), semantic cache files, and HMAC-signed HITL checkpoints (`/app/storage/suspended_states`). Ephemeral container storage (such as AWS App Runner or Fargate without EFS) is wiped on every task restart or deployment, which would break SHA-256 ledger chain continuity and orphan suspended HITL approvals.
+
+1. **Create an EFS File System & Access Point (`UID 10001`)**:
+   - Create an **Amazon EFS** file system in the same VPC/subnets as your ECS Fargate service.
+   - Create three **EFS Access Points** (or subdirectories `/audit_logs`, `/cache`, `/suspended_states`) with POSIX user/group `10001:10001` and permissions `0770`.
+2. **Task Definition (`2048` MiB memory, `1024` CPU)**:
+   - Image: `<account_id>.dkr.ecr.<region>.amazonaws.com/nemawashi-gateway:v1.1.0`
+   - Environment variables: `ENVIRONMENT=production`, `GEMINI_MODEL_NAME=gemini-2.5-flash`, `NEMAWASHI_AUDIT_LOG_DIR=/app/audit_logs`, `NEMAWASHI_CACHE_DIR=/app/cache`, `NEMAWASHI_STATE_DIR=/app/storage/suspended_states`.
+   - Secrets (from **AWS Secrets Manager**): `NEMAWASHI_WEBHOOK_SECRET`, `GEMINI_API_KEY`.
+   - Mount the EFS volumes to `/app/audit_logs`, `/app/cache`, and `/app/storage/suspended_states`.
+   - Configure **ALB Health Check** on port `8000` targeting `GET /health` (and container `healthCheck` on `/health` or `/ready`).
+3. **ECS Service**:
+   - Set `desiredCount: 1` (single-writer `FileLock` consistency for the local JSONL ledger) and restrict Security Group ingress on port `8000` to the Application Load Balancer (ALB).
 
 ---
 

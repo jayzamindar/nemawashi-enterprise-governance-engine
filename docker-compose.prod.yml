@@ -1,0 +1,15 @@
+# =============================================================================
+# Nemawashi Enterprise Governance Engine - Production Docker Compose Override
+# =============================================================================
+# Usage:
+#   NEMAWASHI_WEBHOOK_SECRET=<64-hex-secret> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# =============================================================================
+
+services:
+  gateway:
+    restart: unless-stopped
+    mem_limit: 2048m
+    environment:
+      - ENVIRONMENT=production
+      - GEMINI_MODEL_NAME=${GEMINI_MODEL_NAME:-gemini-2.5-flash}
+      - NEMAWASHI_WEBHOOK_SECRET=${NEMAWASHI_WEBHOOK_SECRET:?NEMAWASHI_WEBHOOK_SECRET must be set}

@@ -132,7 +132,9 @@ GEMINI.md (Workspace Constitution & Source of Truth)
    │                    │
    │                    ├── docs/IMPLEMENTATION_PLAN.md (Phased Engineering Blueprint)
    │                    │
-   │                    ├── docs/DEPLOYMENT_AWS.md (AWS EC2 Free Tier Deployment Guide)
+   │                    ├── docs/DEPLOYMENT_AWS.md (AWS EC2 Free Tier & ECS Fargate + EFS Guide)
+   │                    │
+   │                    ├── docs/DEPLOYMENT_AZURE.md (Azure Container Apps & AKS Deployment Guide)
    │                    │
    │                    └── docs/adr/ (Architecture Decision Records ADR-001..006)
 ```
@@ -146,7 +148,8 @@ GEMINI.md (Workspace Constitution & Source of Truth)
 | **PRD** | [`docs/PRD.md`](docs/PRD.md) | Product vision, quantifiable SLAs/KPIs, functional epics, and NFR budgets. |
 | **URD** | [`docs/URD.md`](docs/URD.md) | 9 Actor personas, RACI governance matrix, operational use cases (UC-01 to UC-08), and User Acceptance Criteria (UAC-01 to UAC-12). |
 | **Roadmap** | [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) | Phased TDD engineering roadmap, vulnerability mitigation matrix, and test verification gates. |
-| **AWS Guide** | [`docs/DEPLOYMENT_AWS.md`](docs/DEPLOYMENT_AWS.md) | Step-by-step production deployment on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) with Docker Compose. |
+| **AWS Guide** | [`docs/DEPLOYMENT_AWS.md`](docs/DEPLOYMENT_AWS.md) | Production deployment on AWS EC2 Free Tier (`t2.micro` / `t3.micro`) and serverless AWS ECS Fargate + EFS. |
+| **Azure Guide** | [`docs/DEPLOYMENT_AZURE.md`](docs/DEPLOYMENT_AZURE.md) | Production deployment on Azure Container Apps (ACA) and AKS with ACR, Azure Files (`UID 10001`), and Key Vault. |
 | **ADR Catalog** | [`docs/adr/`](docs/adr/) | Architecture Decision Records and multi-model review board syntheses (`ADR-001` through `ADR-006`). |
 
 ---
@@ -167,14 +170,17 @@ pytest tests -v
 python -m nemawashi.main
 ```
 
-### Option 2: Docker Compose (Production Runtime)
+### Option 2: Docker Compose (Local & Production Runtime)
 
 ```bash
 # 1. Configure environment file with a secure webhook secret
 cp .env.example .env
 
-# 2. Build and launch the container in detached mode
+# 2. Build and launch the local container in detached mode
 docker compose up -d --build
+
+# Or launch with the hardened production override (ENVIRONMENT=production, 2048m memory ceiling, required secret)
+NEMAWASHI_WEBHOOK_SECRET=$(openssl rand -hex 32) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 # 3. Verify health/readiness probes and open interactive API documentation
 curl http://localhost:8000/health

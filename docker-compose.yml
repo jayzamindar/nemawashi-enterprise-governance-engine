@@ -15,6 +15,8 @@ services:
       - path: .env
         required: false
     environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - GEMINI_MODEL_NAME=${GEMINI_MODEL_NAME:-gemini-2.5-flash}
       - NEMAWASHI_AUDIT_LOG_DIR=/app/audit_logs
       - NEMAWASHI_CACHE_DIR=/app/cache
       - NEMAWASHI_STATE_DIR=/app/storage/suspended_states

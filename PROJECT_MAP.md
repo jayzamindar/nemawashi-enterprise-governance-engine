@@ -11,7 +11,7 @@
 - `modular_prompt.md` — Centralized prompt registry indexing all modular prompts in `prompts/`.
 - `pyproject.toml` — PEP 517/621 package metadata, dependencies, and pytest configuration.
 - `requirements.txt` — Core and development Python dependency list.
-- `Dockerfile` & `docker-compose.yml` — Non-root (`UID 10001`) `python:3.12-slim` container & compose stack.
+- `Dockerfile`, `docker-compose.yml`, & `docker-compose.prod.yml` — Non-root (`UID 10001`) `python:3.12-slim` container, local compose stack, and hardened production override (`2048m` limit).
 - `.github/workflows/ci.yml` — GitHub Actions CI pipeline (offline pytest + Docker build verify).
 - `.env.example` — Template of runtime environment variables (`GEMINI_API_KEY`, `NEMAWASHI_*`).
 
@@ -55,5 +55,5 @@
 
 ## Documentation (`docs/`)
 - `docs/TRD.md`, `docs/PRD.md`, `docs/URD.md`, `docs/IMPLEMENTATION_PLAN.md` — Core system specifications.
-- `docs/DEPLOYMENT_AWS.md`, `docs/PRODUCTION_READINESS_REPORT.md`, `docs/Repo_Baseline_AuditReport.md`, `docs/PROMPT.md` — Deployment & audit reports.
+- `docs/DEPLOYMENT_AWS.md`, `docs/DEPLOYMENT_AZURE.md`, `docs/PRODUCTION_READINESS_REPORT.md`, `docs/Repo_Baseline_AuditReport.md`, `docs/PROMPT.md` — Multi-cloud deployment & audit reports.
 - `docs/adr/ADR-001`..`ADR-006` — Architecture Decision Records.

@@ -63,7 +63,7 @@ Every module and remediation ticket in `nemawashi-governance-engine` must satisf
    - **Auto-Commit & Fail-Closed Verification Gate:** Every `BUILD-PROMPT-XX` execution MUST pass 100% of `pytest` and active `ruff`/`mypy`/coverage gates before staging explicit files (`git add <explicit_files>`, never `git add -A`) and committing with the `REM-XXX` ticket ID; any failure MUST block `git commit` and emit `🚨 GATE FAILURE — HUMAN REVIEW REQUIRED` with the exact error trace.
 
 10. **Cross-Document Synchronization & Zero-Drift Governance:**
-    - `README.md`, `PROJECT_MAP.md`, `modular_prompt.md`, `docs/TRD.md`, `docs/PRD.md`, `docs/URD.md`, `docs/IMPLEMENTATION_PLAN.md`, and `Dockerfile` MUST remain 100% synchronized with the shipped codebase, with zero dead links or `TODO`/`TBD` placeholders.
+    - `README.md`, `PROJECT_MAP.md`, `modular_prompt.md`, `docs/TRD.md`, `docs/PRD.md`, `docs/URD.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/DEPLOYMENT_AWS.md`, `docs/DEPLOYMENT_AZURE.md`, `Dockerfile`, `docker-compose.yml`, and `docker-compose.prod.yml` MUST remain 100% synchronized with the shipped codebase, with zero dead links or `TODO`/`TBD` placeholders.
 
 ---
 
@@ -110,7 +110,8 @@ ruff check src/ tests/ && ruff format --check src/ tests/ && mypy src/ && pytest
 # 2. FastAPI Ingress Gateway (Local Non-Blocking Server)
 uvicorn nemawashi.main:app --host 0.0.0.0 --port 8000
 
-# 3. Containerized Test Suite & Gateway Build
+# 3. Containerized Test Suite & Gateway Build (Local & Hardened Production Override)
 docker compose --profile test run --rm test
 docker compose build gateway && docker compose up -d gateway
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 ```

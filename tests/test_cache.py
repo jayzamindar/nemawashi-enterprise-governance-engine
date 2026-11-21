@@ -1,9 +1,10 @@
 """Tests for Semantic Proposal Vector Cache Guardrail & Vote Lineage (TRD-3)."""
 
-from datetime import datetime, timezone
 import json
-from pathlib import Path
-import pytest
+import os
+import subprocess
+import sys
+from datetime import UTC, datetime
 
 from nemawashi.audit.ledger import verify_ledger_chain
 from nemawashi.core.cache import (
@@ -74,7 +75,9 @@ def test_semantic_cache_store_and_lookup(tmp_path):
     assert cache.lookup(proposal) is None
 
     # 2. Store resolution with vote lineage
-    cache.store(proposal, resolution, stakeholder_votes=mock_votes, deliberation_round=1)
+    cache.store(
+        proposal, resolution, stakeholder_votes=mock_votes, deliberation_round=1
+    )
 
     # 3. Lookup identical proposal is hit and restores vote lineage
     match = cache.lookup(proposal)
@@ -144,9 +147,9 @@ def test_semantic_cache_ttl_expiration(tmp_path):
     assert cache.lookup(proposal) is not None
 
     # Artificially age the entry past 24 hours
-    with open(cache_file, "r", encoding="utf-8") as f:
+    with open(cache_file, encoding="utf-8") as f:
         entries = json.load(f)
-    entries[0]["cached_at"] = datetime(2020, 1, 1, 0, 0, 0, tzinfo=timezone.utc).isoformat()
+    entries[0]["cached_at"] = datetime(2020, 1, 1, 0, 0, 0, tzinfo=UTC).isoformat()
     with open(cache_file, "w", encoding="utf-8") as f:
         json.dump(entries, f)
 
@@ -186,7 +189,9 @@ def test_semantic_cache_rules_hash_invalidation(tmp_path):
     assert cache.lookup(proposal) is None
 
 
-def test_semantic_cache_hit_preserves_vote_lineage_in_audit_ledger(tmp_path, monkeypatch):
+def test_semantic_cache_hit_preserves_vote_lineage_in_audit_ledger(
+    tmp_path, monkeypatch
+):
     """Verify end-to-end that cache hits restore 4-stakeholder vote lineage in state and ledger."""
     ledger_file = tmp_path / "cache_lineage_ledger.jsonl"
     cache_file = tmp_path / "cache_lineage_cache.json"
@@ -251,14 +256,43 @@ def test_semantic_cache_hit_preserves_vote_lineage_in_audit_ledger(tmp_path, mon
     # Record 0: Cache miss, full votes
     assert records[0]["index"] == 0
     assert records[0]["cache_hit"] is False
-    assert set(records[0]["stakeholder_votes"].keys()) == {"security", "compliance", "finops", "sre"}
+    assert set(records[0]["stakeholder_votes"].keys()) == {
+        "security",
+        "compliance",
+        "finops",
+        "sre",
+    }
 
     # Record 1: Cache hit, restored full votes
     assert records[1]["index"] == 1
     assert records[1]["cache_hit"] is True
-    assert set(records[1]["stakeholder_votes"].keys()) == {"security", "compliance", "finops", "sre"}
+    assert set(records[1]["stakeholder_votes"].keys()) == {
+        "security",
+        "compliance",
+        "finops",
+        "sre",
+    }
 
     # Verify cryptographic integrity of both records in the chain
     valid, msg = verify_ledger_chain(ledger_file)
     assert valid is True, f"Ledger verification failed: {msg}"
     assert "2 records intact" in msg
+
+
+def test_text_embedding_deterministic_across_pythonhashseed():
+    """Verify compute_text_embedding is 100% deterministic across processes with different PYTHONHASHSEED."""
+    code = (
+        "import json; "
+        "from nemawashi.core.cache import compute_text_embedding; "
+        "print(json.dumps(compute_text_embedding('scale redis cluster replicas in prod')))"
+    )
+    env1 = {**os.environ, "PYTHONHASHSEED": "1"}
+    env2 = {**os.environ, "PYTHONHASHSEED": "987654"}
+
+    out1 = subprocess.check_output(
+        [sys.executable, "-c", code], env=env1, text=True, encoding="utf-8"
+    )
+    out2 = subprocess.check_output(
+        [sys.executable, "-c", code], env=env2, text=True, encoding="utf-8"
+    )
+    assert json.loads(out1) == json.loads(out2)

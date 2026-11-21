@@ -1,5 +1,6 @@
 """Tests for Gemini Native response_schema Compatibility and Structured Memory."""
 
+from nemawashi.agents.base import ALLOWED_GEMINI_FIELDS, clean_gemini_schema
 from nemawashi.agents.compliance import ComplianceArbiterAgent
 from nemawashi.agents.finops import FinOpsArbiterAgent
 from nemawashi.agents.reliability import SRESentinelAgent
@@ -51,7 +52,9 @@ def test_stakeholder_agents_offline_fallback_schema_compliance():
     assert comp_vote.stakeholder_id == "compliance"
 
     fin_agent = FinOpsArbiterAgent()
-    fin_vote = fin_agent.evaluate(proposal, prior_votes={"security": sec_vote, "compliance": comp_vote})
+    fin_vote = fin_agent.evaluate(
+        proposal, prior_votes={"security": sec_vote, "compliance": comp_vote}
+    )
     assert isinstance(fin_vote, StructuredAgentVote)
     assert fin_vote.stakeholder_id == "finops"
 
@@ -62,3 +65,52 @@ def test_stakeholder_agents_offline_fallback_schema_compliance():
     )
     assert isinstance(sre_vote, StructuredAgentVote)
     assert sre_vote.stakeholder_id == "sre"
+
+
+def test_clean_gemini_schema_dereferences_and_filters_fields():
+    """Verify clean_gemini_schema dereferences $defs/$ref, collapses anyOf nullables, and filters keys."""
+    raw_schema = {
+        "$defs": {
+            "NestedMeta": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "note": {"type": "string", "minLength": 1},
+                },
+                "required": ["note"],
+            }
+        },
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "meta": {"$ref": "#/$defs/NestedMeta", "description": "Nested metadata"},
+            "optional_tag": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": None,
+                "title": "Optional Tag",
+            },
+        },
+        "required": ["meta"],
+    }
+
+    cleaned = clean_gemini_schema(raw_schema)
+    assert "$defs" not in cleaned
+    assert "additionalProperties" not in cleaned
+    assert set(cleaned.keys()).issubset(ALLOWED_GEMINI_FIELDS)
+
+    meta_schema = cleaned["properties"]["meta"]
+    assert "$ref" not in meta_schema
+    assert "additionalProperties" not in meta_schema
+    assert meta_schema["description"] == "Nested metadata"
+    assert "minLength" not in meta_schema["properties"]["note"]
+
+    opt_schema = cleaned["properties"]["optional_tag"]
+    assert "anyOf" not in opt_schema
+    assert "default" not in opt_schema
+    assert opt_schema["type"] == "string"
+    assert opt_schema["nullable"] is True
+
+    # Also verify StructuredAgentVote schema sanitizes cleanly
+    cleaned_vote = clean_gemini_schema(StructuredAgentVote.model_json_schema())
+    assert "additionalProperties" not in cleaned_vote
+    assert set(cleaned_vote.keys()).issubset(ALLOWED_GEMINI_FIELDS)

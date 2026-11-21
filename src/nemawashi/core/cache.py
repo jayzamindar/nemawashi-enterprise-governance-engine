@@ -6,32 +6,37 @@ Bypasses the multi-agent deliberation circle for semantically equivalent proposa
 token costs while preserving full audit vote lineage.
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import math
 import os
-from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from filelock import FileLock
 
 from nemawashi.core.models import AgentProposal, Resolution, StructuredAgentVote
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_CACHE_DIR = Path(os.environ.get("NEMAWASHI_CACHE_DIR", "cache"))
 DEFAULT_CACHE_PATH = DEFAULT_CACHE_DIR / "semantic_cache.json"
 
 
-def get_enterprise_rules_hash(rules_path: Optional[Path] = None) -> str:
+def get_enterprise_rules_hash(rules_path: Path | None = None) -> str:
     """Compute deterministic SHA-256 hash of enterprise_rules.json for cache invalidation."""
-    path = rules_path or (Path(__file__).parent.parent / "policies" / "enterprise_rules.json")
+    path = rules_path or (
+        Path(__file__).parent.parent / "policies" / "enterprise_rules.json"
+    )
     if path.exists():
         try:
             return hashlib.sha256(path.read_bytes()).hexdigest()
-        except Exception:
-            pass
+        except OSError as exc:
+            logger.warning("Failed to hash enterprise rules at %s: %s", path, exc)
     return "genesis_rules_hash"
 
 
@@ -43,9 +48,9 @@ class CacheEntry:
     action_type: str
     target_resource: str
     action_description: str
-    embedding: List[float]
-    resolution: Dict[str, Any]
-    stakeholder_votes: Dict[str, Dict[str, Any]]
+    embedding: list[float]
+    resolution: dict[str, Any]
+    stakeholder_votes: dict[str, dict[str, Any]]
     deliberation_round: int
     cached_at: str
     rules_hash: str
@@ -59,7 +64,7 @@ class CacheMatch:
     resolution: Resolution
     cached_proposal_id: str
     cached_at: str
-    stakeholder_votes: Dict[str, StructuredAgentVote] = field(default_factory=dict)
+    stakeholder_votes: dict[str, StructuredAgentVote] = field(default_factory=dict)
     deliberation_round: int = 1
     rules_hash: str = ""
 
@@ -68,24 +73,30 @@ class CacheMatch:
 CacheLookupResult = CacheMatch
 
 
-def compute_text_embedding(text: str, dim: int = 64) -> List[float]:
+def _deterministic_hash_index(token: str, dim: int) -> int:
+    """Map a token deterministically to a bucket in [0, dim) using SHA-256."""
+    digest = hashlib.sha256(token.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % dim
+
+
+def compute_text_embedding(text: str, dim: int = 64) -> list[float]:
     """Compute a deterministic, normalized vector embedding for text.
 
-    Uses character n-grams and token frequency hashing to produce a stable
-    unit vector suitable for cosine similarity comparisons in offline environments.
+    Uses SHA-256 token and bi-gram feature hashing to produce a stable
+    unit vector suitable for cosine similarity comparisons across restarts.
     """
     clean_text = text.lower().strip()
     words = re.findall(r"\w+", clean_text)
     vec = [0.0] * dim
 
-    # Populate feature vector using word and bi-gram hashing
+    # Populate feature vector using deterministic SHA-256 word and bi-gram hashing
     for word in words:
-        h = hash(word) % dim
+        h = _deterministic_hash_index(word, dim)
         vec[h] += 1.0
 
     for i in range(len(words) - 1):
-        bigram = f"{words[i]}_{words[i+1]}"
-        h = hash(bigram) % dim
+        bigram = f"{words[i]}_{words[i + 1]}"
+        h = _deterministic_hash_index(bigram, dim)
         vec[h] += 1.5
 
     # L2 normalize
@@ -95,21 +106,23 @@ def compute_text_embedding(text: str, dim: int = 64) -> List[float]:
     return [round(x / norm, 6) for x in vec]
 
 
-def cosine_similarity(v1: List[float], v2: List[float]) -> float:
+def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     """Compute cosine similarity between two normalized vectors."""
     if len(v1) != len(v2) or not v1 or not v2:
         return 0.0
-    dot_product = sum(a * b for a, b in zip(v1, v2))
+    dot_product = sum(a * b for a, b in zip(v1, v2, strict=True))
     return max(0.0, min(1.0, dot_product))
 
 
 class SemanticProposalCache:
     """Persistent local semantic cache for evaluated proposals with cross-platform mutex locking."""
 
-    def __init__(self, cache_path: Optional[Path] = None, similarity_threshold: float = 0.95):
+    def __init__(
+        self, cache_path: Path | None = None, similarity_threshold: float = 0.95
+    ):
         self.cache_path = cache_path or DEFAULT_CACHE_PATH
         self.similarity_threshold = similarity_threshold
-        self._entries: List[Dict[str, Any]] = []
+        self._entries: list[dict[str, Any]] = []
         self._lock = FileLock(f"{self.cache_path}.lock", timeout=10)
         self._load()
 
@@ -119,9 +132,12 @@ class SemanticProposalCache:
             self._entries = []
             return
         try:
-            with open(self.cache_path, "r", encoding="utf-8") as f:
+            with open(self.cache_path, encoding="utf-8") as f:
                 self._entries = json.load(f)
-        except Exception:
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Failed to read semantic cache at %s: %s", self.cache_path, exc
+            )
             self._entries = []
 
     def _write_disk(self) -> None:
@@ -143,7 +159,7 @@ class SemanticProposalCache:
     def _get_embedding_text(self, proposal: AgentProposal) -> str:
         return f"{proposal.action_type} {proposal.target_resource} {proposal.action_description}"
 
-    def lookup(self, proposal: AgentProposal) -> Optional[CacheMatch]:
+    def lookup(self, proposal: AgentProposal) -> CacheMatch | None:
         """Query cache for an identical or semantically equivalent proposal.
 
         Validates 24-hour TTL and enterprise rules hash matching before accepting match.
@@ -154,7 +170,7 @@ class SemanticProposalCache:
             query_text = self._get_embedding_text(proposal)
             query_vec = compute_text_embedding(query_text)
 
-            best_match: Optional[CacheMatch] = None
+            best_match: CacheMatch | None = None
             highest_sim = 0.0
             current_rules_hash = get_enterprise_rules_hash()
 
@@ -168,10 +184,10 @@ class SemanticProposalCache:
                 if cached_at_str:
                     try:
                         cached_dt = datetime.fromisoformat(cached_at_str)
-                        if (datetime.now(timezone.utc) - cached_dt).total_seconds() > 86400:
+                        if (datetime.now(UTC) - cached_dt).total_seconds() > 86400:
                             continue
-                    except Exception:
-                        pass
+                    except ValueError:
+                        continue
 
                 # 3. Invalidation Check: Rules Hash Matching (TRD-3.2)
                 entry_rules_hash = entry.get("rules_hash")
@@ -189,14 +205,16 @@ class SemanticProposalCache:
 
                     # 5. Restore Vote Lineage with backward compatibility (TRD-3.3)
                     raw_votes = entry.get("stakeholder_votes", {})
-                    restored_votes: Dict[str, StructuredAgentVote] = {}
+                    restored_votes: dict[str, StructuredAgentVote] = {}
                     if isinstance(raw_votes, dict):
                         for k, v in raw_votes.items():
                             if isinstance(v, dict):
                                 try:
-                                    restored_votes[k] = StructuredAgentVote.model_validate(v)
-                                except Exception:
-                                    pass
+                                    restored_votes[k] = (
+                                        StructuredAgentVote.model_validate(v)
+                                    )
+                                except ValueError:
+                                    continue
                             elif isinstance(v, StructuredAgentVote):
                                 restored_votes[k] = v
 
@@ -218,7 +236,7 @@ class SemanticProposalCache:
         self,
         proposal: AgentProposal,
         resolution: Resolution,
-        stakeholder_votes: Optional[Dict[str, Any]] = None,
+        stakeholder_votes: dict[str, Any] | None = None,
         deliberation_round: int = 1,
     ) -> None:
         """Persist a newly deliberated proposal resolution into the semantic cache with full vote lineage."""
@@ -234,7 +252,7 @@ class SemanticProposalCache:
                     return
 
             # Normalize serialized votes map for lineage retention
-            serialized_votes: Dict[str, Dict[str, Any]] = {}
+            serialized_votes: dict[str, dict[str, Any]] = {}
             if stakeholder_votes:
                 for k, v in stakeholder_votes.items():
                     if isinstance(v, StructuredAgentVote):
@@ -251,7 +269,7 @@ class SemanticProposalCache:
                 "resolution": resolution.model_dump(),
                 "stakeholder_votes": serialized_votes,
                 "deliberation_round": deliberation_round,
-                "cached_at": datetime.now(timezone.utc).isoformat(),
+                "cached_at": datetime.now(UTC).isoformat(),
                 "rules_hash": get_enterprise_rules_hash(),
             }
 
@@ -265,5 +283,7 @@ class SemanticProposalCache:
             if self.cache_path.exists():
                 try:
                     os.remove(self.cache_path)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.warning(
+                        "Failed to remove cache file %s: %s", self.cache_path, exc
+                    )

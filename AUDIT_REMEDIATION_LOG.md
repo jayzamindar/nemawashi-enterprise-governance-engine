@@ -13,7 +13,7 @@
 | `REM-002` | `HIGH` | Reference Port | `GEMINI.md` | `[x] DONE` |
 | `REM-003` | `CRITICAL` | Pydantic | `src/nemawashi/core/models.py`, `src/nemawashi/main.py`, `src/nemawashi/agents/optimizer.py` | `[x] DONE` |
 | `REM-004` | `CRITICAL` | Deterministic Guardrail | `src/nemawashi/policies/policy_engine.py`, `src/nemawashi/policies/enterprise_rules.json` | `[ ] OPEN` |
-| `REM-005` | `CRITICAL` | Deterministic Guardrail / Resource Ceiling | `src/nemawashi/agents/base.py`, `src/nemawashi/core/cache.py` | `[ ] OPEN` |
+| `REM-005` | `CRITICAL` | Deterministic Guardrail / Resource Ceiling | `src/nemawashi/agents/base.py`, `src/nemawashi/core/cache.py` | `[x] DONE` |
 | `REM-006` | `CRITICAL` | Crypto/Audit | `src/nemawashi/main.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
 | `REM-007` | `HIGH` | Loop & Self-Healing / Concurrency | `src/nemawashi/core/engine.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
 | `REM-008` | `HIGH` | Resource Ceiling | `src/nemawashi/main.py`, `src/nemawashi/core/models.py`, `src/nemawashi/core/cache.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
@@ -124,7 +124,8 @@
   4. Log Gemini exceptions explicitly before falling back to `_evaluate_offline_with_usage`.
   5. Replace `hash(word)` and `hash(bigram)` in `cache.py` with deterministic `int.from_bytes(hashlib.sha256(s.encode("utf-8")).digest()[:8], "big") % dim`.
 - **Verification Criteria:** Run `pytest tests/test_agents.py tests/test_gemini_schema.py tests/test_cache.py -v` plus new tests for XML tag breakout stripping, circuit breaker trip, and cross-process deterministic embeddings.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Added `sanitize_untrusted_text()` stripping XML/prompt breakout tags and bounding field lengths in `src/nemawashi/agents/base.py`; loaded `GEMINI_MODEL_NAME` from env (default `gemini-2.5-flash`) with `max_output_tokens=8192`; implemented `clean_gemini_schema()` dereferencing `$defs`/`$ref`, collapsing `anyOf` nullables, and filtering with `ALLOWED_GEMINI_FIELDS`; added thread-safe `MAX_SESSION_TOKEN_BUDGET` (500,000) and `DAILY_API_COST_LIMIT_USD` ($10.00) circuit breakers and explicit exception logging before offline fallback; replaced `hash()` in `src/nemawashi/core/cache.py` with deterministic `hashlib.sha256` integer indexing; added TDD tests in `tests/test_agents.py`, `tests/test_gemini_schema.py`, and `tests/test_cache.py`.
+- **Status:** `[x] DONE`
 
 ---
 

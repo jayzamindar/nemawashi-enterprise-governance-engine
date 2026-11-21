@@ -9,6 +9,7 @@ agent iterations.
 import hashlib
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,8 +26,33 @@ from nemawashi.core.state import NemawashiState
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LEDGER_PATH = Path("audit_logs") / "nemawashi_ledger.jsonl"
+_DEFAULT_LEDGER_PATH = Path("audit_logs") / "nemawashi_ledger.jsonl"
+DEFAULT_LEDGER_PATH = _DEFAULT_LEDGER_PATH
 GENESIS_HASH = "0" * 64
+
+
+def get_ledger_path(ledger_path: Path | None = None) -> Path:
+    """Resolve audit ledger path dynamically from NEMAWASHI_AUDIT_LOG_DIR or default."""
+    if ledger_path is not None:
+        return ledger_path
+    if DEFAULT_LEDGER_PATH != _DEFAULT_LEDGER_PATH:
+        return DEFAULT_LEDGER_PATH
+    env_dir = os.getenv("NEMAWASHI_AUDIT_LOG_DIR")
+    if env_dir and env_dir.strip():
+        return Path(env_dir.strip()) / "nemawashi_ledger.jsonl"
+    return DEFAULT_LEDGER_PATH
+
+
+def _get_dynamic_cache_path() -> Path | None:
+    """Resolve semantic cache path dynamically from NEMAWASHI_CACHE_DIR when not monkeypatched."""
+    import nemawashi.core.cache as cache_mod
+
+    if cache_mod.DEFAULT_CACHE_PATH.parent.name != "cache":
+        return None
+    env_dir = os.getenv("NEMAWASHI_CACHE_DIR")
+    if env_dir and env_dir.strip():
+        return Path(env_dir.strip()) / "semantic_cache.json"
+    return None
 
 
 def canonical_json(obj: Any) -> str:
@@ -64,7 +90,7 @@ def get_latest_ledger_hash(ledger_path: Path | None = None) -> tuple[int, str]:
         Tuple of (latest_index, latest_hash). If ledger is empty or non-existent,
         returns (-1, GENESIS_HASH).
     """
-    path = ledger_path or DEFAULT_LEDGER_PATH
+    path = get_ledger_path(ledger_path)
     if not path.exists():
         return -1, GENESIS_HASH
 
@@ -102,7 +128,7 @@ def commit_chained_audit_ledger_node(
             "No downstream or post-hoc mutations are permitted."
         )
 
-    target_path = ledger_path or DEFAULT_LEDGER_PATH
+    target_path = get_ledger_path(ledger_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     proposal = state["proposal"]
@@ -229,7 +255,7 @@ def commit_chained_audit_ledger_node(
     # If not a cache hit and resolution exists, register in semantic cache with vote lineage
     if resolution is not None and not state.get("cache_hit", False):
         try:
-            cache = SemanticProposalCache()
+            cache = SemanticProposalCache(cache_path=_get_dynamic_cache_path())
             cache.store(
                 proposal=proposal,
                 resolution=resolution,
@@ -255,7 +281,7 @@ def verify_ledger_chain(ledger_path: Path | None = None) -> tuple[bool, str]:
         (True, "OK") if all hashes and chain links are mathematically valid.
         (False, error_description) if any corruption, deletion, or tampering occurred.
     """
-    path = ledger_path or DEFAULT_LEDGER_PATH
+    path = get_ledger_path(ledger_path)
     if not path.exists():
         return True, "Ledger does not exist yet (clean slate)."
 

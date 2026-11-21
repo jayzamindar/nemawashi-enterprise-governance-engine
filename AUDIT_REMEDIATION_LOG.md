@@ -15,7 +15,7 @@
 | `REM-004` | `CRITICAL` | Deterministic Guardrail | `src/nemawashi/policies/policy_engine.py`, `src/nemawashi/policies/enterprise_rules.json` | `[ ] OPEN` |
 | `REM-005` | `CRITICAL` | Deterministic Guardrail / Resource Ceiling | `src/nemawashi/agents/base.py`, `src/nemawashi/core/cache.py` | `[x] DONE` |
 | `REM-006` | `CRITICAL` | Crypto/Audit | `src/nemawashi/main.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
-| `REM-007` | `HIGH` | Loop & Self-Healing / Concurrency | `src/nemawashi/core/engine.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
+| `REM-007` | `HIGH` | Loop & Self-Healing / Concurrency | `src/nemawashi/core/engine.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
 | `REM-008` | `HIGH` | Resource Ceiling | `src/nemawashi/main.py`, `src/nemawashi/core/models.py`, `src/nemawashi/core/cache.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
 | `REM-009` | `HIGH` | CI/CD & Test Safety | `pyproject.toml`, `requirements.txt`, `.github/workflows/ci.yml`, `tests/test_gateway_auth.py` | `[x] DONE` |
 | `REM-010` | `HIGH` | Loop & Self-Healing | `src/nemawashi/agents/arbiter.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
@@ -172,7 +172,8 @@
   3. Resolve `NEMAWASHI_STATE_DIR`, `NEMAWASHI_AUDIT_LOG_DIR`, and `NEMAWASHI_CACHE_DIR` dynamically via helper functions at call time.
   4. Ensure all `open()`, `read_text()`, and `write_text()` calls in `engine.py` explicitly specify `encoding="utf-8"`.
 - **Verification Criteria:** Run `pytest tests/test_gateway_auth.py tests/test_audit_chain.py -v` plus a concurrent `/resume` test (using `concurrent.futures.ThreadPoolExecutor` with explicit `future.result(timeout=10)`) verifying only 1 ledger record is committed and env var path overrides work without monkeypatching module globals.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Wrapped `load_suspended_state`, `interactive_human_gatekeeper_node`, `hitl_gatekeeper_routing`, `commit_chained_audit_ledger_node`, and `state_file.unlink()` in `NemawashiEngine.resume_proposal` inside a per-`proposal_id` `FileLock(timeout=10.0)` with `validate_proposal_id()` pre-validation; added dynamic call-time resolution helpers `get_suspended_states_dir()`, `get_ledger_path()`, and `_get_dynamic_cache_path()` for `NEMAWASHI_STATE_DIR`, `NEMAWASHI_AUDIT_LOG_DIR`, and `NEMAWASHI_CACHE_DIR` while preserving test monkeypatch compatibility; added concurrent `resume_proposal`, concurrent `/resume`, and dynamic env var path override TDD tests in `tests/test_gateway_auth.py`.
+- **Status:** `[x] DONE`
 
 ---
 

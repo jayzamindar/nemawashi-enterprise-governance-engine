@@ -254,7 +254,7 @@ def resume_deliberation(
             )
         _USED_NONCES[request.nonce] = float(request.expires_at)
 
-    # 4. Resume execution through Nemawashi engine
+    # 6. Resume execution through Nemawashi engine
     engine = NemawashiEngine()
     try:
         final_state = engine.resume_proposal(

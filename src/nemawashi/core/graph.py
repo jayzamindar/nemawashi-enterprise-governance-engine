@@ -32,7 +32,35 @@ from nemawashi.core.state import NemawashiState
 from nemawashi.policies.policy_engine import evaluate_proposal_policies
 
 console = Console()
-SUSPENDED_STATES_DIR = Path("storage") / "suspended_states"
+_DEFAULT_SUSPENDED_STATES_DIR = Path("storage") / "suspended_states"
+SUSPENDED_STATES_DIR = _DEFAULT_SUSPENDED_STATES_DIR
+
+
+def get_suspended_states_dir(storage_dir: Path | None = None) -> Path:
+    """Resolve suspended states directory dynamically from NEMAWASHI_STATE_DIR or default."""
+    if storage_dir is not None:
+        return storage_dir
+    if SUSPENDED_STATES_DIR != _DEFAULT_SUSPENDED_STATES_DIR:
+        return SUSPENDED_STATES_DIR
+    env_dir = os.getenv("NEMAWASHI_STATE_DIR")
+    if env_dir and env_dir.strip():
+        base = Path(env_dir.strip())
+        if base.name == "suspended_states":
+            return base
+        return base / "suspended_states"
+    return SUSPENDED_STATES_DIR
+
+
+def _get_dynamic_cache_path() -> Path | None:
+    """Resolve semantic cache path dynamically from NEMAWASHI_CACHE_DIR when not monkeypatched."""
+    import nemawashi.core.cache as cache_mod
+
+    if cache_mod.DEFAULT_CACHE_PATH.parent.name != "cache":
+        return None
+    env_dir = os.getenv("NEMAWASHI_CACHE_DIR")
+    if env_dir and env_dir.strip():
+        return Path(env_dir.strip()) / "semantic_cache.json"
+    return None
 
 
 def serialize_state(state: NemawashiState) -> dict[str, Any]:
@@ -111,7 +139,7 @@ def save_suspended_state(
     proposal_id = state["proposal"].proposal_id
     validate_proposal_id(proposal_id)
 
-    target_dir = storage_dir or SUSPENDED_STATES_DIR
+    target_dir = get_suspended_states_dir(storage_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     file_path = target_dir / f"{proposal_id}.json"
     serialized = serialize_state(state)
@@ -137,7 +165,7 @@ def load_suspended_state(
     """Load and deserialize a suspended NemawashiState from local storage."""
     validate_proposal_id(proposal_id)
 
-    target_dir = storage_dir or SUSPENDED_STATES_DIR
+    target_dir = get_suspended_states_dir(storage_dir)
     file_path = target_dir / f"{proposal_id}.json"
     if not file_path.exists():
         raise FileNotFoundError(
@@ -267,7 +295,7 @@ def semantic_cache_check_node(state: NemawashiState) -> dict[str, Any]:
     Upon a cache hit, bypasses the multi-agent circle to eliminate duplicate token costs and latency,
     restoring historical stakeholder vote lineage and map into state for audit continuity.
     """
-    cache = SemanticProposalCache()
+    cache = SemanticProposalCache(cache_path=_get_dynamic_cache_path())
     match = cache.lookup(state["proposal"])
 
     if match and match.similarity >= 0.95:

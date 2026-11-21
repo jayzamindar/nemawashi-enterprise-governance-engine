@@ -1,5 +1,6 @@
 """Tests for Mandatory HMAC-SHA256 Gateway Callback Authentication (TRD-5.2)."""
 
+import concurrent.futures
 import json
 import time
 import uuid
@@ -489,3 +490,127 @@ def test_gateway_production_startup_rejects_default_or_missing_secret(monkeypatc
 
     monkeypatch.setenv("NEMAWASHI_WEBHOOK_SECRET", TEST_SECRET)
     validate_production_secrets()
+
+
+def test_concurrent_resume_engine_race_immunity(hitl_environment):
+    """Verify per-proposal_id FileLock prevents duplicate ledger commits on concurrent resume_proposal calls."""
+    proposal_id = hitl_environment["proposal_id"]
+    engine = NemawashiEngine(max_rounds=3)
+
+    def _attempt_resume(idx: int) -> bool:
+        result = engine.resume_proposal(
+            proposal_id=proposal_id,
+            approved=True,
+            rationale=f"Concurrent operator approval #{idx}",
+        )
+        return bool(result.get("audit_committed"))
+
+    successes = 0
+    not_found_errors = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(_attempt_resume, i) for i in range(4)]
+        for future in futures:
+            try:
+                if future.result(timeout=10):
+                    successes += 1
+            except FileNotFoundError:
+                not_found_errors += 1
+
+    assert successes == 1
+    assert not_found_errors == 3
+    assert not hitl_environment["state_file"].exists()
+
+    valid, msg = verify_ledger_chain(hitl_environment["ledger_file"])
+    assert valid is True, f"Ledger verification failed: {msg}"
+    assert "1 records intact" in msg
+
+
+def test_concurrent_resume_gateway_race_immunity(client, hitl_environment):
+    """Verify concurrent POST /resume callbacks for the same proposal_id commit strictly once."""
+    proposal_id = hitl_environment["proposal_id"]
+
+    def _post_resume(idx: int) -> int:
+        issued_at, expires_at, nonce = _fresh_timestamps()
+        rationale = f"Concurrent gateway approval #{idx}"
+        sig = compute_resume_signature(
+            proposal_id=proposal_id,
+            approved=True,
+            rationale=rationale,
+            secret=TEST_SECRET,
+            issued_at=issued_at,
+            expires_at=expires_at,
+            nonce=nonce,
+        )
+        payload = {
+            "proposal_id": proposal_id,
+            "approved": True,
+            "rationale": rationale,
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+            "nonce": nonce,
+            "auth_token": sig,
+        }
+        response = client.post("/resume", json=payload)
+        return response.status_code
+
+    statuses: list[int] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [executor.submit(_post_resume, i) for i in range(3)]
+        for future in futures:
+            statuses.append(future.result(timeout=10))
+
+    assert statuses.count(200) == 1
+    assert statuses.count(404) == 2
+
+    valid, msg = verify_ledger_chain(hitl_environment["ledger_file"])
+    assert valid is True, f"Ledger verification failed: {msg}"
+    assert "1 records intact" in msg
+
+
+def test_dynamic_env_var_path_overrides(tmp_path, monkeypatch):
+    """Verify NEMAWASHI_STATE_DIR, NEMAWASHI_AUDIT_LOG_DIR, and NEMAWASHI_CACHE_DIR resolve dynamically."""
+    custom_state_dir = tmp_path / "dyn_state"
+    custom_audit_dir = tmp_path / "dyn_audit"
+    custom_cache_dir = tmp_path / "dyn_cache"
+
+    monkeypatch.setenv("NEMAWASHI_STATE_DIR", str(custom_state_dir))
+    monkeypatch.setenv("NEMAWASHI_AUDIT_LOG_DIR", str(custom_audit_dir))
+    monkeypatch.setenv("NEMAWASHI_CACHE_DIR", str(custom_cache_dir))
+    monkeypatch.setenv("NEMAWASHI_WEBHOOK_SECRET", TEST_SECRET)
+
+    engine = NemawashiEngine(max_rounds=3)
+    proposal = AgentProposal(
+        proposal_id="p-dynamic-paths",
+        proposing_agent="agent-scaler",
+        action_type="provision_gpu_fleet",
+        action_description="Provision GPU cluster verifying dynamic env paths",
+        target_resource="gpu-fleet",
+        estimated_cost_usd=1500.0,
+        estimated_blast_radius=85,
+    )
+
+    suspended_state = engine.evaluate_proposal(proposal)
+    assert suspended_state.get("suspended_for_hitl") is True
+
+    expected_state_file = (
+        custom_state_dir / "suspended_states" / f"{proposal.proposal_id}.json"
+    )
+    assert expected_state_file.exists()
+
+    resumed_state = engine.resume_proposal(
+        proposal_id=proposal.proposal_id,
+        approved=True,
+        rationale="Dynamic path override verified",
+    )
+    assert resumed_state["audit_committed"] is True
+    assert resumed_state["execution_permitted"] is True
+    assert not expected_state_file.exists()
+
+    expected_ledger_file = custom_audit_dir / "nemawashi_ledger.jsonl"
+    assert expected_ledger_file.exists()
+    valid, msg = verify_ledger_chain()
+    assert valid is True, f"Ledger verification failed: {msg}"
+    assert "1 records intact" in msg
+
+    expected_cache_file = custom_cache_dir / "semantic_cache.json"
+    assert expected_cache_file.exists()

@@ -1,8 +1,8 @@
 """Nemawashi Enterprise Policies."""
 
 from nemawashi.policies.policy_engine import (
-    evaluate_proposal_policies,
     PolicyEvaluationResult,
+    evaluate_proposal_policies,
 )
 
-__all__ = ["evaluate_proposal_policies", "PolicyEvaluationResult"]
+__all__ = ["PolicyEvaluationResult", "evaluate_proposal_policies"]

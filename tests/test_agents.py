@@ -308,3 +308,71 @@ def test_session_token_and_cost_circuit_breakers(monkeypatch, caplog):
     mock_client.models.generate_content.assert_not_called()
     assert "Daily API cost limit circuit breaker tripped" in caplog.text
     base_module.reset_usage_counters()
+
+
+def test_stakeholder_offline_edge_branches():
+    """Verify Security credential, Compliance GDPR, SRE upstream REJECT, and FinOps staging branches."""
+    sec = SecurityGuardianAgent()
+    p_sec = AgentProposal(
+        proposal_id="p-sec-cred",
+        proposing_agent="agent-worker",
+        action_type="deploy_app",
+        action_description="Rotate api_key and credential config",
+        target_resource="auth-secret-store",
+    )
+    v_sec = sec.evaluate(p_sec)
+    assert v_sec.vote == "MITIGATE"
+    assert "credential-exposure-risk" in v_sec.risk_tags
+
+    comp = ComplianceArbiterAgent()
+    p_comp = AgentProposal(
+        proposal_id="p-comp-gdpr",
+        proposing_agent="agent-worker",
+        action_type="deploy_app",
+        action_description="Export user email list for GDPR audit",
+        target_resource="pii-data-lake",
+    )
+    v_comp = comp.evaluate(p_comp)
+    assert v_comp.vote == "MITIGATE"
+    assert "gdpr-data-privacy" in v_comp.risk_tags
+
+    p_hipaa_pci = AgentProposal(
+        proposal_id="p-comp-hipaa-pci",
+        proposing_agent="agent-worker",
+        action_type="deploy_app",
+        action_description="Process patient hipaa payment card cvv data",
+        target_resource="hipaa-pci-vault",
+    )
+    v_hipaa_pci = comp.evaluate(
+        p_hipaa_pci,
+        prior_votes={
+            "security": StructuredAgentVote(
+                stakeholder_id="security",
+                vote="MITIGATE",
+                risk_tags=["unrestricted-ingress"],
+            )
+        },
+    )
+    assert v_hipaa_pci.vote == "MITIGATE"
+    assert "hipaa-protected-health-information" in v_hipaa_pci.risk_tags
+    assert "pci-dss-cardholder-scope" in v_hipaa_pci.risk_tags
+    assert "compliance-audit-risk-from-network-exposure" in v_hipaa_pci.risk_tags
+
+    sre = SRESentinelAgent()
+    reject_prior = {
+        "security": StructuredAgentVote(stakeholder_id="security", vote="REJECT")
+    }
+    v_sre = sre.evaluate(p_sec, prior_votes=reject_prior)
+    assert v_sre.vote == "REJECT"
+    assert "upstream-rejection-by-security" in v_sre.risk_tags
+
+    fin = FinOpsArbiterAgent()
+    staging_prior = {
+        "security": StructuredAgentVote(
+            stakeholder_id="security",
+            vote="MITIGATE",
+            mitigation_requirements=["Execute in staging environment first"],
+        )
+    }
+    v_fin = fin.evaluate(p_sec, prior_votes=staging_prior)
+    assert any("staging" in m.lower() for m in v_fin.mitigation_requirements)

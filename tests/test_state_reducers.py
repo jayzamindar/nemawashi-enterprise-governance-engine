@@ -1,6 +1,7 @@
 """Tests for State Channel Reducers, Immutability, and Consensus Amnesia Prevention (MEP-1.2)."""
 
 import pytest
+
 from nemawashi.core.models import AgentProposal, StructuredAgentVote
 from nemawashi.core.state import (
     accumulate_costs,

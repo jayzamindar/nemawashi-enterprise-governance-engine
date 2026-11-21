@@ -1,6 +1,7 @@
 """FinOps & Resource Arbiter Agent."""
 
-from typing import Dict, Optional
+from typing import Literal
+
 from nemawashi.agents.base import BaseGovernanceAgent
 from nemawashi.core.models import AgentProposal, StructuredAgentVote
 
@@ -8,7 +9,7 @@ from nemawashi.core.models import AgentProposal, StructuredAgentVote
 class FinOpsArbiterAgent(BaseGovernanceAgent):
     """Enforces financial spend caps, quota management, and token unit economics."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             stakeholder_id="finops",
             prompt_file="finops_stakeholder.md",
@@ -17,26 +18,32 @@ class FinOpsArbiterAgent(BaseGovernanceAgent):
     def _evaluate_offline(
         self,
         proposal: AgentProposal,
-        prior_votes: Optional[Dict[str, StructuredAgentVote]] = None,
+        prior_votes: dict[str, StructuredAgentVote] | None = None,
     ) -> StructuredAgentVote:
         cost = proposal.estimated_cost_usd
-        risk_tags = []
-        mitigations = []
-        vote_verdict = "APPROVE"
+        risk_tags: list[str] = []
+        mitigations: list[str] = []
+        vote_verdict: Literal["APPROVE", "REJECT", "MITIGATE"] = "APPROVE"
 
         # Check prior votes for expensive mitigations
         if prior_votes:
-            for sid, vote in prior_votes.items():
+            for vote in prior_votes.values():
                 if "staging" in str(vote.mitigation_requirements).lower():
-                    mitigations.append("ENFORCE: Auto-terminate staging instances after 2 hours to avoid idle billing")
+                    mitigations.append(
+                        "ENFORCE: Auto-terminate staging instances after 2 hours to avoid idle billing"
+                    )
 
         if cost > 1000.0:
             risk_tags.append("major-budget-consumption")
-            mitigations.append("ENFORCE: Mandate spot/preemptible instances or compute savings plan")
+            mitigations.append(
+                "ENFORCE: Mandate spot/preemptible instances or compute savings plan"
+            )
             vote_verdict = "MITIGATE"
         elif cost > 300.0:
             risk_tags.append("moderate-budget-allocation")
-            mitigations.append("ENFORCE: Attach FinOps CostCenter and Owner billing tags")
+            mitigations.append(
+                "ENFORCE: Attach FinOps CostCenter and Owner billing tags"
+            )
             vote_verdict = "MITIGATE"
 
         return StructuredAgentVote(

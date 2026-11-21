@@ -7,14 +7,15 @@ consensus amnesia, router lookup errors, and financial observability blind spots
 """
 
 import copy
-from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from typing import Annotated, Any, TypedDict
+
 from nemawashi.core.models import AgentProposal, Resolution, StructuredAgentVote
 
 
 def append_vote(
-    existing: Optional[List[StructuredAgentVote]],
+    existing: list[StructuredAgentVote] | None,
     new_vote: StructuredAgentVote,
-) -> List[StructuredAgentVote]:
+) -> list[StructuredAgentVote]:
     """Custom channel reducer ensuring structured votes accumulate across sequential nodes.
 
     Strictly accepts ONLY a single StructuredAgentVote instance (no Union/List polymorphism).
@@ -31,17 +32,17 @@ def append_vote(
             f"append_vote reducer expects a StructuredAgentVote instance, got {type(new_vote).__name__}."
         )
 
-    current: List[StructuredAgentVote] = copy.deepcopy(existing) if existing else []
+    current: list[StructuredAgentVote] = copy.deepcopy(existing) if existing else []
     current.append(copy.deepcopy(new_vote))
     return current
 
 
 def append_ledger_record(
-    existing: Optional[List[Dict[str, Any]]],
+    existing: list[dict[str, Any]] | None,
     new_records: Any,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Custom channel reducer ensuring audit records accumulate immutably."""
-    current: List[Dict[str, Any]] = copy.deepcopy(existing) if existing else []
+    current: list[dict[str, Any]] = copy.deepcopy(existing) if existing else []
     if isinstance(new_records, list):
         current.extend(copy.deepcopy(new_records))
     else:
@@ -49,12 +50,12 @@ def append_ledger_record(
     return current
 
 
-def accumulate_tokens(existing: Optional[int], new_tokens: Optional[int]) -> int:
+def accumulate_tokens(existing: int | None, new_tokens: int | None) -> int:
     """Atomic reducer accumulating prompt and completion tokens across agent turns."""
     return (existing or 0) + (new_tokens or 0)
 
 
-def accumulate_costs(existing: Optional[float], new_cost: Optional[float]) -> float:
+def accumulate_costs(existing: float | None, new_cost: float | None) -> float:
     """Atomic reducer accumulating running financial costs in USD."""
     return round((existing or 0.0) + (new_cost or 0.0), 6)
 
@@ -93,26 +94,26 @@ class NemawashiState(TypedDict, total=False):
 
     proposal: AgentProposal
     policy_passed: bool
-    policy_violations: List[str]
-    votes: Annotated[List[StructuredAgentVote], append_vote]
-    stakeholder_votes: Dict[str, StructuredAgentVote]
-    stakeholder_map: Dict[str, str]
-    audit_ledger: Annotated[List[Dict[str, Any]], append_ledger_record]
+    policy_violations: list[str]
+    votes: Annotated[list[StructuredAgentVote], append_vote]
+    stakeholder_votes: dict[str, StructuredAgentVote]
+    stakeholder_map: dict[str, str]
+    audit_ledger: Annotated[list[dict[str, Any]], append_ledger_record]
     prompt_tokens: Annotated[int, accumulate_tokens]
     completion_tokens: Annotated[int, accumulate_tokens]
     total_cost_usd: Annotated[float, accumulate_costs]
-    resolution: Optional[Resolution]
+    resolution: Resolution | None
     current_round: int
     max_rounds: int
     loop_veto_triggered: bool
-    human_approved: Optional[bool]
+    human_approved: bool | None
     execution_permitted: bool
     human_rationale: str
     audit_committed: bool
-    audit_record_hash: Optional[str]
+    audit_record_hash: str | None
     cost_optimization_applied: bool
-    optimized_proposal_parameters: Dict[str, Any]
-    cached_resolution: Optional[Resolution]
+    optimized_proposal_parameters: dict[str, Any]
+    cached_resolution: Resolution | None
     cache_hit: bool
     suspended_for_hitl: bool
 
@@ -120,7 +121,7 @@ class NemawashiState(TypedDict, total=False):
 def create_initial_state(
     proposal: AgentProposal,
     max_rounds: int = 3,
-    human_approved: Optional[bool] = None,
+    human_approved: bool | None = None,
 ) -> NemawashiState:
     """Instantiate a pristine NemawashiState contract with initialized loop watchdog counters and reducer channels."""
     return {

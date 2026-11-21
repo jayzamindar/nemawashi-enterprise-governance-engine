@@ -88,3 +88,19 @@ def test_optimizer_preserves_original_proposal():
     assert proposal.proposal_id == optimized.proposal_id
     with pytest.raises(ValidationError):
         proposal.estimated_cost_usd = 1.0  # type: ignore
+
+
+def test_optimizer_low_cost_reduction():
+    """Verify proposals <= $200 receive 15% reduction and FinOps billing tags."""
+    optimizer = CostOptimizationAgent()
+    proposal = AgentProposal(
+        proposal_id="p-opt-low",
+        proposing_agent="agent-worker",
+        action_type="scale_cache",
+        action_description="Scale cache",
+        target_resource="redis-01",
+        estimated_cost_usd=100.0,
+    )
+    optimized = optimizer.optimize(proposal)
+    assert optimized.estimated_cost_usd == 85.0
+    assert optimized.parameters.get("cost_center_tag") == "engineering_optimized"

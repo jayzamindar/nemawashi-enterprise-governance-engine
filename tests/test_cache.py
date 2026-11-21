@@ -347,3 +347,32 @@ def test_semantic_cache_prunes_expired_and_excess_entries_on_store(tmp_path):
     persisted_ids = [e["proposal_id"] for e in persisted]
     assert persisted_ids == ["p-fresh-2", "p-fresh-3"]
     assert not hasattr(cache, "_lock")
+
+
+def test_semantic_cache_corrupt_json_and_clear(tmp_path):
+    """Verify corrupt cache JSON recovers gracefully to empty and clear() resets store."""
+    cache_file = tmp_path / "corrupt_cache.json"
+    cache_file.write_text("{corrupt-json", encoding="utf-8")
+
+    cache = SemanticProposalCache(cache_path=cache_file)
+    proposal = AgentProposal(
+        proposal_id="p-corrupt-1",
+        proposing_agent="agent-1",
+        action_type="scale_cache",
+        action_description="Scale cache",
+        target_resource="redis-01",
+    )
+    assert cache.lookup(proposal) is None
+
+    res = Resolution(
+        proposal_id="p-corrupt-1",
+        verdict="UNANIMOUS_CONSENSUS",
+        composite_risk_score=10,
+        summary="Approved",
+    )
+    cache.store(proposal, res)
+    assert cache.lookup(proposal) is not None
+    cache._load()
+    cache._save()
+    cache.clear()
+    assert cache.lookup(proposal) is None

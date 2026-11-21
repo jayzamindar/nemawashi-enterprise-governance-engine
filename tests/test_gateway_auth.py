@@ -625,6 +625,13 @@ def test_gateway_ready_and_singleton_engine(client):
     assert resp.json()["status"] == "ready"
     assert get_engine() is get_engine()
 
+    health = client.get("/health")
+    assert health.status_code == 200
+    assert health.json() == {
+        "status": "healthy",
+        "service": "nemawashi-governance-engine",
+    }
+
 
 def test_gateway_rejects_oversized_content_length_with_413(client):
     """Verify fast-path Content-Length > 10MB returns HTTP 413 Payload Too Large."""
@@ -700,3 +707,66 @@ def test_agent_proposal_rejects_oversized_strings_and_parameters():
             target_resource="pool-1",
             parameters={"blob": "z" * (MAX_PROPOSAL_PARAMETERS_BYTES + 100)},
         )
+
+
+def test_gateway_resume_operator_rejection_and_tamper_400(client, hitl_environment):
+    """Verify /resume handles operator rejection (approved=False) and tampered state (HTTP 400)."""
+    rationale = "Operator denied deployment due to maintenance window"
+    issued_at, expires_at, nonce = _fresh_timestamps()
+    sig = compute_resume_signature(
+        proposal_id=hitl_environment["proposal_id"],
+        approved=False,
+        rationale=rationale,
+        secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
+    )
+    payload = {
+        "proposal_id": hitl_environment["proposal_id"],
+        "approved": False,
+        "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
+        "auth_token": sig,
+    }
+    resp = client.post(
+        "/resume",
+        json=payload,
+        headers={"Content-Length": "not-an-int"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["execution_permitted"] is False
+    assert data["human_approved"] is False
+    assert data["audit_committed"] is True
+
+    # Re-create a tampered suspended state file and verify /resume returns 400
+    tampered_id = "p-tampered-gw"
+    state_file = hitl_environment["storage_dir"] / f"{tampered_id}.json"
+    state_file.write_text('{"proposal": {}, "_state_hmac": "bad"}', encoding="utf-8")
+
+    issued_at2, expires_at2, nonce2 = _fresh_timestamps()
+    sig2 = compute_resume_signature(
+        proposal_id=tampered_id,
+        approved=True,
+        rationale="Attempt on tampered state",
+        secret=TEST_SECRET,
+        issued_at=issued_at2,
+        expires_at=expires_at2,
+        nonce=nonce2,
+    )
+    bad_resp = client.post(
+        "/resume",
+        json={
+            "proposal_id": tampered_id,
+            "approved": True,
+            "rationale": "Attempt on tampered state",
+            "issued_at": issued_at2,
+            "expires_at": expires_at2,
+            "nonce": nonce2,
+            "auth_token": sig2,
+        },
+    )
+    assert bad_resp.status_code == 400

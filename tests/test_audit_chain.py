@@ -1,7 +1,7 @@
 """Tests for Cryptographically Chained SHA-256 Audit Ledger and Immutability Guarantees."""
 
 import json
-from pathlib import Path
+
 import pytest
 
 from nemawashi.audit.ledger import (
@@ -9,7 +9,7 @@ from nemawashi.audit.ledger import (
     commit_chained_audit_ledger_node,
     verify_ledger_chain,
 )
-from nemawashi.core.models import AgentProposal, Resolution, StructuredAgentVote
+from nemawashi.core.models import AgentProposal, Resolution
 from nemawashi.core.state import create_initial_state
 
 
@@ -112,7 +112,7 @@ def test_token_and_cost_accounting_in_audit_record(tmp_path):
     assert record["completion_tokens"] == 350
     assert record["total_cost_usd"] == 0.000195
 
-    valid, msg = verify_ledger_chain(ledger_file)
+    valid, _msg = verify_ledger_chain(ledger_file)
     assert valid is True
 
 
@@ -225,7 +225,9 @@ def test_concurrent_ledger_commits_maintain_unbroken_hash_chain(tmp_path):
 
     assert len(records) == num_threads
     indices = [r["index"] for r in records]
-    assert indices == list(range(num_threads)), f"Indices must appear in sequential order 0..{num_threads-1}, got: {indices}"
+    assert indices == list(range(num_threads)), (
+        f"Indices must appear in sequential order 0..{num_threads - 1}, got: {indices}"
+    )
 
     # Verify cryptographic integrity of the entire chain
     valid, msg = verify_ledger_chain(ledger_file)
@@ -267,3 +269,34 @@ def test_ledger_lock_timeout_raises_runtime_error(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="Audit ledger lock acquisition timed out"):
         verify_ledger_chain(ledger_path=ledger_file)
 
+
+def test_canonical_json_unicode_and_verify_chain(tmp_path):
+    """Verify canonical JSON (ensure_ascii=False, compact separators) preserves Unicode and verifies."""
+    ledger_file = tmp_path / "unicode_ledger.jsonl"
+
+    proposal = AgentProposal(
+        proposal_id="p-unicode",
+        proposing_agent="agent-1",
+        action_type="scale_up",
+        action_description="Scale cluster in Zürich region",
+        target_resource="pool-eu-central",
+    )
+    state = create_initial_state(proposal=proposal)
+    state["policy_passed"] = True
+    state["human_approved"] = True
+    state["human_rationale"] = "Approved by Zürich SRE lead — naïve café check"
+    state["resolution"] = Resolution(
+        proposal_id="p-unicode",
+        verdict="HUMAN_IN_THE_LOOP_ESCALATION",
+        composite_risk_score=25,
+        mandatory_mitigations=["Verify Zürich backup replication"],
+        requires_human_approval=True,
+        summary="Approved with Unicode rationale",
+    )
+
+    res = commit_chained_audit_ledger_node(state, ledger_path=ledger_file)
+    assert res["audit_committed"] is True
+
+    valid, msg = verify_ledger_chain(ledger_file)
+    assert valid is True, f"Unicode canonical ledger verification failed: {msg}"
+    assert "1 records intact" in msg

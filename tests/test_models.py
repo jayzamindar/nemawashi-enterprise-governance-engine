@@ -245,9 +245,18 @@ def test_usage_resolution_audit_and_resume_strict_contracts():
         ResumeProposalRequest(
             proposal_id="prop-123",
             approved=True,
+            issued_at=1000.0,
+            expires_at=1120.0,
+            nonce="nonce-123",
             extra_field="bad",  # type: ignore
         )
 
-    req = ResumeProposalRequest(proposal_id="prop-123", approved=True)
+    req = ResumeProposalRequest(
+        proposal_id="prop-123",
+        approved=True,
+        issued_at=1000.0,
+        expires_at=1120.0,
+        nonce="nonce-123",
+    )
     with pytest.raises(ValidationError):
         req.approved = False  # type: ignore

@@ -14,7 +14,7 @@
 | `REM-003` | `CRITICAL` | Pydantic | `src/nemawashi/core/models.py`, `src/nemawashi/main.py`, `src/nemawashi/agents/optimizer.py` | `[x] DONE` |
 | `REM-004` | `CRITICAL` | Deterministic Guardrail | `src/nemawashi/policies/policy_engine.py`, `src/nemawashi/policies/enterprise_rules.json` | `[ ] OPEN` |
 | `REM-005` | `CRITICAL` | Deterministic Guardrail / Resource Ceiling | `src/nemawashi/agents/base.py`, `src/nemawashi/core/cache.py` | `[x] DONE` |
-| `REM-006` | `CRITICAL` | Crypto/Audit | `src/nemawashi/main.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
+| `REM-006` | `CRITICAL` | Crypto/Audit | `src/nemawashi/main.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[x] DONE` |
 | `REM-007` | `HIGH` | Loop & Self-Healing / Concurrency | `src/nemawashi/core/engine.py`, `src/nemawashi/core/graph.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
 | `REM-008` | `HIGH` | Resource Ceiling | `src/nemawashi/main.py`, `src/nemawashi/core/models.py`, `src/nemawashi/core/cache.py`, `src/nemawashi/audit/ledger.py` | `[ ] OPEN` |
 | `REM-009` | `HIGH` | CI/CD & Test Safety | `pyproject.toml`, `requirements.txt`, `.github/workflows/ci.yml`, `tests/test_gateway_auth.py` | `[x] DONE` |
@@ -149,7 +149,8 @@
   4. Fail closed at gateway startup (`RuntimeError`) if `ENVIRONMENT=production` and `NEMAWASHI_WEBHOOK_SECRET` is empty or matches known placeholder strings.
   5. Ensure all `open()`, `read_text()`, and `write_text()` calls in `graph.py` and `ledger.py` explicitly specify `encoding="utf-8"`.
 - **Verification Criteria:** Run `pytest tests/test_gateway_auth.py tests/test_audit_chain.py -v` with new tests proving missing `_state_hmac` raises `ValueError`, expired/replayed `/resume` tokens return `401`/`400`, and production default secret fails closed.
-- **Status:** `[ ] OPEN`
+- **Resolution Notes:** Enforced fail-closed `_state_hmac` presence and type validation in `load_suspended_state` (`src/nemawashi/core/graph.py`); standardized HMAC/SHA-256 JSON serialization on `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)` across `graph.py`, `ledger.py`, and `main.py`; upgraded `/resume` (`src/nemawashi/main.py`) to canonical JSON over `{proposal_id, approved, rationale, issued_at, expires_at, nonce}` with strict `current_time >= expires_at` ($\le 300\text{s}$ TTL) rejection and thread-safe nonce replay deduplication; added `validate_production_secrets()` wired to FastAPI `lifespan` rejecting unset/empty/default `NEMAWASHI_WEBHOOK_SECRET` when `ENVIRONMENT=production`; verified explicit `encoding="utf-8"` on all file I/O in `graph.py` and `ledger.py`; added TDD tests in `tests/test_gateway_auth.py` and `tests/test_audit_chain.py`.
+- **Status:** `[x] DONE`
 
 ---
 

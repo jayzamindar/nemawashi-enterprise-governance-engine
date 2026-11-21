@@ -8,9 +8,14 @@ Provides:
 
 import hashlib
 import hmac
+import json
 import os
 import sys
+import threading
+import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, Header, HTTPException, status
@@ -25,6 +30,39 @@ from nemawashi.core.models import AgentProposal
 
 console = Console()
 
+INSECURE_DEFAULT_SECRETS = frozenset(
+    {
+        "",
+        "change-me-in-production-32-byte-secret",
+        "changeme",
+        "secret",
+    }
+)
+MAX_RESUME_TTL_SECONDS = 300
+
+_NONCE_LOCK = threading.Lock()
+_USED_NONCES: dict[str, float] = {}
+
+
+def validate_production_secrets() -> None:
+    """Fail closed at startup if ENVIRONMENT=production has an unset or default webhook secret."""
+    env = os.getenv("ENVIRONMENT", "").strip().lower()
+    if env == "production":
+        secret = os.getenv("NEMAWASHI_WEBHOOK_SECRET", "").strip()
+        if not secret or secret in INSECURE_DEFAULT_SECRETS:
+            raise RuntimeError(
+                "NEMAWASHI_WEBHOOK_SECRET must be set to a strong non-default value "
+                "when ENVIRONMENT=production."
+            )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Validate critical security configuration before accepting traffic."""
+    validate_production_secrets()
+    yield
+
+
 # -----------------------------------------------------------------------------
 # FastAPI Ingress Gateway Application
 # -----------------------------------------------------------------------------
@@ -33,6 +71,7 @@ app = FastAPI(
     title="Nemawashi Multi-Agent Governance Engine Gateway",
     description="Non-blocking ingress gateway for asynchronous human-in-the-loop deliberation callbacks.",
     version="1.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -54,6 +93,19 @@ class ResumeProposalRequest(BaseModel):
     rationale: str = Field(
         default="Operator decision supplied via FastAPI gateway callback",
         description="Written justification for operator decision",
+    )
+    issued_at: float = Field(
+        ..., description="Unix epoch timestamp when the callback payload was issued"
+    )
+    expires_at: float = Field(
+        ...,
+        description="Unix epoch timestamp when the callback payload expires (TTL <= 300s)",
+    )
+    nonce: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Unique single-use nonce for anti-replay protection",
     )
     auth_token: str | None = Field(
         default=None,
@@ -89,12 +141,28 @@ def compute_resume_signature(
     approved: bool,
     rationale: str,
     secret: str,
+    issued_at: float,
+    expires_at: float,
+    nonce: str,
 ) -> str:
-    """Compute deterministic HMAC-SHA256 signature for resume callback payload."""
-    payload = f"{proposal_id}:{str(approved).lower()}:{rationale}"
+    """Compute deterministic HMAC-SHA256 signature over canonical JSON for resume callback."""
+    payload_obj = {
+        "proposal_id": proposal_id,
+        "approved": approved,
+        "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
+    }
+    canonical_payload = json.dumps(
+        payload_obj,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     return hmac.new(
         secret.encode("utf-8"),
-        payload.encode("utf-8"),
+        canonical_payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
 
@@ -113,12 +181,14 @@ def resume_deliberation(
 ) -> ResumeProposalResponse:
     """External callback endpoint for resuming suspended human-in-the-loop deliberations.
 
-    Enforces mandatory HMAC-SHA256 signature verification using NEMAWASHI_WEBHOOK_SECRET.
-    Loads the serialized state from local storage, applies operator decision and rationale,
-    resumes graph execution, and seals the final record in the immutable audit ledger.
+    Enforces mandatory HMAC-SHA256 signature verification over canonical JSON using
+    NEMAWASHI_WEBHOOK_SECRET, strict TTL (<= 300s) expiration, and nonce replay protection.
     """
     secret = os.getenv("NEMAWASHI_WEBHOOK_SECRET")
-    if not secret:
+    if not secret or (
+        os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+        and secret.strip() in INSECURE_DEFAULT_SECRETS
+    ):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="NEMAWASHI_WEBHOOK_SECRET not configured",
@@ -139,12 +209,15 @@ def resume_deliberation(
     if provided_sig.lower().startswith("sha256="):
         provided_sig = provided_sig[7:].strip()
 
-    # 2. Compute expected HMAC-SHA256 digest
+    # 2. Compute expected HMAC-SHA256 digest over canonical JSON
     expected_sig = compute_resume_signature(
         proposal_id=request.proposal_id,
         approved=request.approved,
         rationale=request.rationale,
         secret=secret,
+        issued_at=request.issued_at,
+        expires_at=request.expires_at,
+        nonce=request.nonce,
     )
 
     # 3. Constant-time comparison
@@ -153,6 +226,33 @@ def resume_deliberation(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid HMAC-SHA256 callback signature",
         )
+
+    # 4. Anti-replay: enforce TTL <= 300s and strict current_time >= expires_at rejection
+    ttl = request.expires_at - request.issued_at
+    if ttl <= 0 or ttl > MAX_RESUME_TTL_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid callback token TTL (must be > 0 and <= 300 seconds)",
+        )
+
+    current_time = time.time()
+    if current_time >= request.expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Callback token has expired",
+        )
+
+    # 5. Anti-replay: nonce deduplication (pruning expired nonces)
+    with _NONCE_LOCK:
+        expired_nonces = [n for n, exp in _USED_NONCES.items() if current_time >= exp]
+        for expired_nonce in expired_nonces:
+            del _USED_NONCES[expired_nonce]
+        if request.nonce in _USED_NONCES:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Replay detected: nonce has already been used",
+            )
+        _USED_NONCES[request.nonce] = float(request.expires_at)
 
     # 4. Resume execution through Nemawashi engine
     engine = NemawashiEngine()

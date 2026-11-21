@@ -1,6 +1,8 @@
 """Tests for Mandatory HMAC-SHA256 Gateway Callback Authentication (TRD-5.2)."""
 
 import json
+import time
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -15,9 +17,18 @@ from nemawashi.core.graph import (
     validate_proposal_id,
 )
 from nemawashi.core.models import AgentProposal
-from nemawashi.main import app, compute_resume_signature
+from nemawashi.main import (
+    app,
+    compute_resume_signature,
+    validate_production_secrets,
+)
 
 TEST_SECRET = "nemawashi-enterprise-webhook-secret-32-bytes"
+
+
+def _fresh_timestamps(ttl_seconds: float = 120.0) -> tuple[float, float, str]:
+    now = time.time()
+    return now, now + ttl_seconds, str(uuid.uuid4())
 
 
 @pytest.fixture
@@ -75,10 +86,14 @@ def hitl_environment(tmp_path, monkeypatch):
 
 def test_gateway_missing_signature_returns_401(client, hitl_environment):
     """Verify that requests missing both X-Nemawashi-Signature and auth_token return 401."""
+    issued_at, expires_at, nonce = _fresh_timestamps()
     payload = {
         "proposal_id": hitl_environment["proposal_id"],
         "approved": True,
         "rationale": "Missing signature attempt",
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
     }
     response = client.post("/resume", json=payload)
     assert response.status_code == 401
@@ -90,10 +105,14 @@ def test_gateway_unset_webhook_secret_returns_500(
 ):
     """Verify fail-closed architecture when NEMAWASHI_WEBHOOK_SECRET is unset in runtime."""
     monkeypatch.delenv("NEMAWASHI_WEBHOOK_SECRET", raising=False)
+    issued_at, expires_at, nonce = _fresh_timestamps()
     payload = {
         "proposal_id": hitl_environment["proposal_id"],
         "approved": True,
         "rationale": "Attempt with missing server secret",
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
         "auth_token": "some-token",
     }
     response = client.post("/resume", json=payload)
@@ -105,10 +124,14 @@ def test_gateway_invalid_signature_returns_401_and_preserves_state(
     client, hitl_environment
 ):
     """Verify that tampered/invalid signature returns 401 and does NOT mutate or resume state."""
+    issued_at, expires_at, nonce = _fresh_timestamps()
     payload = {
         "proposal_id": hitl_environment["proposal_id"],
         "approved": True,
         "rationale": "Tampered signature attempt",
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
     }
     headers = {
         "X-Nemawashi-Signature": "sha256=deadbeefcafebabebadhex00112233445566778899aabbccddeeff"
@@ -127,17 +150,24 @@ def test_gateway_invalid_signature_returns_401_and_preserves_state(
 def test_gateway_valid_signature_header_resumes_and_commits(client, hitl_environment):
     """Verify that valid HMAC header unfreezes state, authorizes execution, and seals ledger."""
     rationale = "Executive VP authorized deployment after security review"
+    issued_at, expires_at, nonce = _fresh_timestamps()
     valid_sig = compute_resume_signature(
         proposal_id=hitl_environment["proposal_id"],
         approved=True,
         rationale=rationale,
         secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
     )
 
     payload = {
         "proposal_id": hitl_environment["proposal_id"],
         "approved": True,
         "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
     }
     headers = {"X-Nemawashi-Signature": f"sha256={valid_sig}"}
 
@@ -166,17 +196,24 @@ def test_gateway_valid_signature_header_resumes_and_commits(client, hitl_environ
 def test_gateway_valid_auth_token_in_body_resumes_and_commits(client, hitl_environment):
     """Verify that signature passed via auth_token in request body succeeds as valid fallback."""
     rationale = "Lead SRE approved cluster scaling via webhook body token"
+    issued_at, expires_at, nonce = _fresh_timestamps()
     valid_sig = compute_resume_signature(
         proposal_id=hitl_environment["proposal_id"],
         approved=True,
         rationale=rationale,
         secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
     )
 
     payload = {
         "proposal_id": hitl_environment["proposal_id"],
         "approved": True,
         "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
         "auth_token": valid_sig,
     }
 
@@ -189,10 +226,14 @@ def test_gateway_valid_auth_token_in_body_resumes_and_commits(client, hitl_envir
 
 def test_gateway_malformed_signature_headers_return_401(client, hitl_environment):
     """Verify that malformed signature prefixes, non-hex strings, and truncated hashes are rejected with 401."""
+    issued_at, expires_at, nonce = _fresh_timestamps()
     payload = {
         "proposal_id": hitl_environment["proposal_id"],
         "approved": True,
         "rationale": "Adversarial signature header tests",
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
     }
 
     malformed_headers = [
@@ -213,10 +254,14 @@ def test_gateway_malformed_signature_headers_return_401(client, hitl_environment
 
 def test_gateway_path_traversal_proposal_id_rejected(client):
     """Verify that path traversal in proposal_id is rejected by schema validation or handler."""
+    issued_at, expires_at, nonce = _fresh_timestamps()
     payload = {
         "proposal_id": "../../etc/passwd",
         "approved": True,
         "rationale": "Path traversal attempt",
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
         "auth_token": "dummy",
     }
     response = client.post("/resume", json=payload)
@@ -274,3 +319,173 @@ def test_prompt_traversal_guard():
         BaseGovernanceAgent(
             stakeholder_id="adversarial", prompt_file="../../secret.txt"
         )
+
+
+def test_load_suspended_state_missing_hmac_fails_closed(hitl_environment):
+    """Verify load_suspended_state raises ValueError when secret is set and _state_hmac is stripped."""
+    state_file = hitl_environment["state_file"]
+    with open(state_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    assert "_state_hmac" in data
+    del data["_state_hmac"]
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    with pytest.raises(
+        ValueError,
+        match="Suspended state integrity violation: missing _state_hmac",
+    ):
+        load_suspended_state(hitl_environment["proposal_id"])
+
+
+def test_gateway_expired_token_returns_401(client, hitl_environment):
+    """Verify /resume rejects expired payloads (current_time >= expires_at) with 401."""
+    now = time.time()
+    issued_at = now - 120.0
+    expires_at = now - 1.0
+    nonce = str(uuid.uuid4())
+    rationale = "Expired callback attempt"
+    sig = compute_resume_signature(
+        proposal_id=hitl_environment["proposal_id"],
+        approved=True,
+        rationale=rationale,
+        secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
+    )
+    payload = {
+        "proposal_id": hitl_environment["proposal_id"],
+        "approved": True,
+        "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
+        "auth_token": sig,
+    }
+    response = client.post("/resume", json=payload)
+    assert response.status_code == 401
+    assert "expired" in response.json()["detail"].lower()
+    assert hitl_environment["state_file"].exists()
+
+
+def test_gateway_invalid_ttl_returns_401(client, hitl_environment):
+    """Verify /resume rejects TTL > 300s or expires_at <= issued_at with 401."""
+    now = time.time()
+    issued_at = now
+    expires_at = now + 301.0
+    nonce = str(uuid.uuid4())
+    rationale = "Excessive TTL callback attempt"
+    sig = compute_resume_signature(
+        proposal_id=hitl_environment["proposal_id"],
+        approved=True,
+        rationale=rationale,
+        secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
+    )
+    payload = {
+        "proposal_id": hitl_environment["proposal_id"],
+        "approved": True,
+        "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
+        "auth_token": sig,
+    }
+    response = client.post("/resume", json=payload)
+    assert response.status_code == 401
+    assert "TTL" in response.json()["detail"]
+
+
+def test_gateway_replayed_nonce_returns_401(client, hitl_environment):
+    """Verify /resume rejects replayed payloads reusing the same nonce with 401."""
+    issued_at, expires_at, nonce = _fresh_timestamps()
+    rationale = "Approved once; second attempt must be rejected as replay"
+    sig = compute_resume_signature(
+        proposal_id=hitl_environment["proposal_id"],
+        approved=True,
+        rationale=rationale,
+        secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
+    )
+    payload = {
+        "proposal_id": hitl_environment["proposal_id"],
+        "approved": True,
+        "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
+        "auth_token": sig,
+    }
+    first = client.post("/resume", json=payload)
+    assert first.status_code == 200
+
+    replay = client.post("/resume", json=payload)
+    assert replay.status_code == 401
+    assert "Replay detected" in replay.json()["detail"]
+
+
+def test_gateway_canonical_json_prevents_delimiter_injection(client, hitl_environment):
+    """Verify canonical JSON prevents colon delimiter ambiguity and preserves Unicode."""
+    issued_at, expires_at, nonce = _fresh_timestamps()
+    rationale = "VP approved: region=eu-west-1, café-tier"
+    sig_actual = compute_resume_signature(
+        proposal_id=hitl_environment["proposal_id"],
+        approved=True,
+        rationale=rationale,
+        secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
+    )
+    sig_ambiguous = compute_resume_signature(
+        proposal_id=f"{hitl_environment['proposal_id']}:true",
+        approved=False,
+        rationale=rationale,
+        secret=TEST_SECRET,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        nonce=nonce,
+    )
+    assert sig_actual != sig_ambiguous
+
+    payload = {
+        "proposal_id": hitl_environment["proposal_id"],
+        "approved": True,
+        "rationale": rationale,
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "nonce": nonce,
+        "auth_token": sig_actual,
+    }
+    response = client.post("/resume", json=payload)
+    assert response.status_code == 200
+    assert response.json()["execution_permitted"] is True
+
+
+def test_gateway_production_startup_rejects_default_or_missing_secret(monkeypatch):
+    """Verify production startup fails closed when NEMAWASHI_WEBHOOK_SECRET is unset, empty, or default."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    for bad_secret in [None, "", "change-me-in-production-32-byte-secret"]:
+        if bad_secret is None:
+            monkeypatch.delenv("NEMAWASHI_WEBHOOK_SECRET", raising=False)
+        else:
+            monkeypatch.setenv("NEMAWASHI_WEBHOOK_SECRET", bad_secret)
+
+        with pytest.raises(RuntimeError, match="NEMAWASHI_WEBHOOK_SECRET"):
+            validate_production_secrets()
+
+        with (
+            pytest.raises(RuntimeError, match="NEMAWASHI_WEBHOOK_SECRET"),
+            TestClient(app),
+        ):
+            pass
+
+    monkeypatch.setenv("NEMAWASHI_WEBHOOK_SECRET", TEST_SECRET)
+    validate_production_secrets()

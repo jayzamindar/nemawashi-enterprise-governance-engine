@@ -6,14 +6,15 @@ human-in-the-loop escalation with local storage persistence, and the strict term
 immutable audit ledger node.
 """
 
-from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import re
-from typing import Any, Dict, Literal, Optional
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal
+
 from langgraph.graph import END, START, StateGraph
 from rich.console import Console
 from rich.panel import Panel
@@ -34,15 +35,18 @@ console = Console()
 SUSPENDED_STATES_DIR = Path("storage") / "suspended_states"
 
 
-def serialize_state(state: NemawashiState) -> Dict[str, Any]:
+def serialize_state(state: NemawashiState) -> dict[str, Any]:
     """Serialize NemawashiState into a JSON-compatible dictionary."""
-    data: Dict[str, Any] = {}
+    data: dict[str, Any] = {}
     for k, v in state.items():
-        if k == "proposal" and isinstance(v, AgentProposal):
-            data[k] = v.model_dump()
-        elif k == "resolution" and isinstance(v, Resolution):
-            data[k] = v.model_dump()
-        elif k == "cached_resolution" and isinstance(v, Resolution):
+        if (
+            k == "proposal"
+            and isinstance(v, AgentProposal)
+            or k == "resolution"
+            and isinstance(v, Resolution)
+            or k == "cached_resolution"
+            and isinstance(v, Resolution)
+        ):
             data[k] = v.model_dump()
         elif k == "votes" and isinstance(v, list):
             data[k] = [
@@ -59,7 +63,7 @@ def serialize_state(state: NemawashiState) -> Dict[str, Any]:
     return data
 
 
-def deserialize_state(data: Dict[str, Any]) -> NemawashiState:
+def deserialize_state(data: dict[str, Any]) -> NemawashiState:
     """Deserialize a dictionary back into a fully typed NemawashiState contract."""
     state = dict(data)
     if "proposal" in state and isinstance(state["proposal"], dict):
@@ -101,7 +105,7 @@ def validate_proposal_id(proposal_id: str) -> None:
 
 
 def save_suspended_state(
-    state: NemawashiState, storage_dir: Optional[Path] = None
+    state: NemawashiState, storage_dir: Path | None = None
 ) -> Path:
     """Persist suspended NemawashiState to local storage for non-blocking asynchronous resumption."""
     proposal_id = state["proposal"].proposal_id
@@ -114,19 +118,21 @@ def save_suspended_state(
 
     secret = os.getenv("NEMAWASHI_WEBHOOK_SECRET")
     if secret:
-        canonical_bytes = json.dumps(serialized, sort_keys=True).encode("utf-8")
+        canonical_bytes = json.dumps(
+            serialized, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
         state_hmac = hmac.new(
             secret.encode("utf-8"), canonical_bytes, hashlib.sha256
         ).hexdigest()
         serialized["_state_hmac"] = state_hmac
 
     with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(serialized, f, indent=2)
+        json.dump(serialized, f, indent=2, ensure_ascii=False)
     return file_path
 
 
 def load_suspended_state(
-    proposal_id: str, storage_dir: Optional[Path] = None
+    proposal_id: str, storage_dir: Path | None = None
 ) -> NemawashiState:
     """Load and deserialize a suspended NemawashiState from local storage."""
     validate_proposal_id(proposal_id)
@@ -141,9 +147,19 @@ def load_suspended_state(
         data = json.load(f)
 
     secret = os.getenv("NEMAWASHI_WEBHOOK_SECRET")
-    if secret and "_state_hmac" in data:
+    if secret:
+        if "_state_hmac" not in data:
+            raise ValueError(
+                f"Suspended state integrity violation: missing _state_hmac for proposal '{proposal_id}'"
+            )
         expected_hmac = data.pop("_state_hmac")
-        canonical_bytes = json.dumps(data, sort_keys=True).encode("utf-8")
+        if not isinstance(expected_hmac, str):
+            raise ValueError(
+                f"Suspended state integrity violation: invalid _state_hmac for proposal '{proposal_id}'"
+            )
+        canonical_bytes = json.dumps(
+            data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
         computed_hmac = hmac.new(
             secret.encode("utf-8"), canonical_bytes, hashlib.sha256
         ).hexdigest()
@@ -157,7 +173,7 @@ def load_suspended_state(
     return deserialize_state(data)
 
 
-def emit_mock_notification_webhook(state: NemawashiState) -> Dict[str, Any]:
+def emit_mock_notification_webhook(state: NemawashiState) -> dict[str, Any]:
     """Emit an asynchronous webhook notification payload and log out-of-band escalation."""
     proposal = state["proposal"]
     resolution = state.get("resolution")
@@ -177,7 +193,7 @@ def emit_mock_notification_webhook(state: NemawashiState) -> Dict[str, Any]:
             "total_cost_usd": state.get("total_cost_usd", 0.0),
         },
         "callback_endpoint": "/resume",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     console.print(
         Panel(
@@ -199,9 +215,9 @@ def emit_mock_notification_webhook(state: NemawashiState) -> Dict[str, Any]:
     return payload
 
 
-def intake_proposal_node(state: NemawashiState) -> Dict[str, Any]:
+def intake_proposal_node(state: NemawashiState) -> dict[str, Any]:
     """Ingests and validates the initial AgentProposal in state."""
-    proposal = state["proposal"]
+    _ = state["proposal"]
     current_round = state.get("current_round", 1)
     max_rounds = state.get("max_rounds", 3)
     return {
@@ -212,7 +228,7 @@ def intake_proposal_node(state: NemawashiState) -> Dict[str, Any]:
     }
 
 
-def policy_precheck_node(state: NemawashiState) -> Dict[str, Any]:
+def policy_precheck_node(state: NemawashiState) -> dict[str, Any]:
     """Evaluates the proposal against deterministic enterprise policies."""
     proposal = state["proposal"]
     result = evaluate_proposal_policies(proposal)
@@ -244,7 +260,7 @@ def policy_routing(
     return "semantic_cache_check_node"
 
 
-def semantic_cache_check_node(state: NemawashiState) -> Dict[str, Any]:
+def semantic_cache_check_node(state: NemawashiState) -> dict[str, Any]:
     """Pre-Circle Semantic Cache Guardrail Layer.
 
     Queries local vector cache for semantically equivalent proposals (cosine >= 0.95).
@@ -260,7 +276,9 @@ def semantic_cache_check_node(state: NemawashiState) -> Dict[str, Any]:
 
         restored_votes = match.stakeholder_votes
         stakeholder_map = {
-            role: vote.vote if isinstance(vote, StructuredAgentVote) else vote.get("vote", "")
+            role: vote.vote
+            if isinstance(vote, StructuredAgentVote)
+            else vote.get("vote", "")
             for role, vote in restored_votes.items()
         }
 
@@ -285,7 +303,7 @@ def cache_routing(
     return "security_stakeholder_node"
 
 
-def security_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
+def security_stakeholder_node(state: NemawashiState) -> dict[str, Any]:
     """First sequential stakeholder: Security Guardian."""
     agent = SecurityGuardianAgent()
     vote, tokens = agent.evaluate_with_usage(
@@ -307,7 +325,7 @@ def security_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
     }
 
 
-def compliance_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
+def compliance_stakeholder_node(state: NemawashiState) -> dict[str, Any]:
     """Second sequential stakeholder: Compliance & Legal Arbiter."""
     agent = ComplianceArbiterAgent()
     vote, tokens = agent.evaluate_with_usage(
@@ -329,7 +347,7 @@ def compliance_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
     }
 
 
-def finops_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
+def finops_stakeholder_node(state: NemawashiState) -> dict[str, Any]:
     """Third sequential stakeholder: FinOps Arbiter."""
     agent = FinOpsArbiterAgent()
     vote, tokens = agent.evaluate_with_usage(
@@ -351,7 +369,7 @@ def finops_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
     }
 
 
-def reliability_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
+def reliability_stakeholder_node(state: NemawashiState) -> dict[str, Any]:
     """Fourth sequential stakeholder: SRE Sentinel."""
     agent = SRESentinelAgent()
     vote, tokens = agent.evaluate_with_usage(
@@ -373,22 +391,23 @@ def reliability_stakeholder_node(state: NemawashiState) -> Dict[str, Any]:
     }
 
 
-def arbiter_synthesis_node(state: NemawashiState) -> Dict[str, Any]:
+def arbiter_synthesis_node(state: NemawashiState) -> dict[str, Any]:
     """Consensus Arbiter synthesizes all structured votes into a Resolution."""
     agent = ConsensusArbiterAgent()
+    existing_res = state.get("resolution")
     resolution = agent.synthesize(
         proposal=state["proposal"],
         votes=state.get("stakeholder_votes", {}),
         current_round=state.get("current_round", 1),
         max_rounds=state.get("max_rounds", 3),
-        requires_revision=state.get("resolution").requires_revision
-        if state.get("resolution")
+        requires_revision=existing_res.requires_revision
+        if existing_res is not None
         else False,
     )
     return {"resolution": resolution}
 
 
-def cost_optimization_agent_node(state: NemawashiState) -> Dict[str, Any]:
+def cost_optimization_agent_node(state: NemawashiState) -> dict[str, Any]:
     """Adaptive Cost Optimization Persona.
 
     Intercepts proposals flagged for budget mitigations and restructures the infrastructure
@@ -469,7 +488,7 @@ def consensus_router(
     return "commit_chained_audit_ledger_node"
 
 
-def deliberation_revision_node(state: NemawashiState) -> Dict[str, Any]:
+def deliberation_revision_node(state: NemawashiState) -> dict[str, Any]:
     """Advances deliberation round counter and resets round-scoped vote views.
 
     Round 2+ evaluates the revised/optimized proposal with a clean round slate,
@@ -484,13 +503,14 @@ def deliberation_revision_node(state: NemawashiState) -> Dict[str, Any]:
     }
 
 
-def immediate_policy_veto_node(state: NemawashiState) -> Dict[str, Any]:
+def immediate_policy_veto_node(state: NemawashiState) -> dict[str, Any]:
     """Structural VETO node for policy breaches, rejections, or loop watchdog interventions."""
     current_round = state.get("current_round", 1)
     max_rounds = state.get("max_rounds", 3)
+    existing_res = state.get("resolution")
     loop_veto = (current_round > max_rounds) or (
-        state.get("resolution") is not None
-        and state["resolution"].requires_revision
+        existing_res is not None
+        and existing_res.requires_revision
         and current_round >= max_rounds
     )
 
@@ -554,7 +574,7 @@ def immediate_policy_veto_node(state: NemawashiState) -> Dict[str, Any]:
     }
 
 
-def interactive_human_gatekeeper_node(state: NemawashiState) -> Dict[str, Any]:
+def interactive_human_gatekeeper_node(state: NemawashiState) -> dict[str, Any]:
     """Non-blocking human gatekeeper node.
 
     Synchronous input() is completely removed to eliminate blocking execution loops.

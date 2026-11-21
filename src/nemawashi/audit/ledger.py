@@ -6,21 +6,32 @@ enters the ledger block, the state cannot be mutated by human input or downstrea
 agent iterations.
 """
 
-from datetime import datetime, timezone
 import hashlib
 import json
-import os
+import logging
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from filelock import FileLock, Timeout
 
 from nemawashi.core.cache import SemanticProposalCache
-from nemawashi.core.models import AuditRecord, StructuredAgentVote
+from nemawashi.core.models import (
+    AuditRecord,
+    HumanApprovalRecord,
+    StructuredAgentVote,
+)
 from nemawashi.core.state import NemawashiState
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_LEDGER_PATH = Path("audit_logs") / "nemawashi_ledger.jsonl"
 GENESIS_HASH = "0" * 64
+
+
+def canonical_json(obj: Any) -> str:
+    """Serialize obj to strict canonical JSON for deterministic hashing."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def calculate_record_hash(
@@ -46,7 +57,7 @@ def calculate_record_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def get_latest_ledger_hash(ledger_path: Optional[Path] = None) -> Tuple[int, str]:
+def get_latest_ledger_hash(ledger_path: Path | None = None) -> tuple[int, str]:
     """Retrieve the index and hash of the most recent committed record in the ledger.
 
     Returns:
@@ -59,7 +70,7 @@ def get_latest_ledger_hash(ledger_path: Optional[Path] = None) -> Tuple[int, str
 
     last_line = ""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 stripped = line.strip()
                 if stripped:
@@ -68,14 +79,14 @@ def get_latest_ledger_hash(ledger_path: Optional[Path] = None) -> Tuple[int, str
             return -1, GENESIS_HASH
         record = json.loads(last_line)
         return int(record.get("index", 0)), str(record.get("record_hash", GENESIS_HASH))
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError):
         return -1, GENESIS_HASH
 
 
 def commit_chained_audit_ledger_node(
     state: NemawashiState,
-    ledger_path: Optional[Path] = None,
-) -> Dict[str, Any]:
+    ledger_path: Path | None = None,
+) -> dict[str, Any]:
     """Strict terminal node in LangGraph immediately preceding END.
 
     Ensures the state cannot be mutated once sealed into the cryptographic chain.
@@ -105,7 +116,9 @@ def commit_chained_audit_ledger_node(
         verdict = "CONSENSUS_VETO"
         execution_permitted = False
         composite_risk = 100
-        mitigations: list[str] = ["WATCHDOG_INTERVENTION: Deliberation loop ceiling exceeded"]
+        mitigations: list[str] = [
+            "WATCHDOG_INTERVENTION: Deliberation loop ceiling exceeded"
+        ]
     elif not policy_passed:
         verdict = "CONSENSUS_VETO"
         execution_permitted = False
@@ -131,27 +144,33 @@ def commit_chained_audit_ledger_node(
 
     # Normalize serialized structured votes (sorted by key for deterministic hashing)
     raw_votes = state.get("stakeholder_votes", {})
-    serialized_votes_map: Dict[str, Dict[str, Any]] = {}
+    serialized_votes_map: dict[str, dict[str, Any]] = {}
+    validated_votes_map: dict[str, StructuredAgentVote] = {}
     for k in sorted(raw_votes.keys()):
         v = raw_votes[k]
         if isinstance(v, StructuredAgentVote):
             serialized_votes_map[k] = v.model_dump()
+            validated_votes_map[k] = v
         elif isinstance(v, dict):
-            serialized_votes_map[k] = v
+            validated_vote = StructuredAgentVote.model_validate(v)
+            serialized_votes_map[k] = validated_vote.model_dump()
+            validated_votes_map[k] = validated_vote
         else:
             serialized_votes_map[k] = {"raw": str(v)}
 
-    serialized_votes_str = json.dumps(serialized_votes_map, sort_keys=True)
-    mitigations_json = json.dumps(sorted(mitigations))
+    serialized_votes_str = canonical_json(serialized_votes_map)
+    mitigations_json = canonical_json(sorted(mitigations))
 
     # Human sign-off payload
-    human_approval = None
+    human_approval: HumanApprovalRecord | None = None
     if state.get("human_approved") is not None:
-        human_approval = {
-            "approved": state.get("human_approved"),
-            "rationale": state.get("human_rationale", ""),
-        }
-    human_approval_json = json.dumps(human_approval, sort_keys=True) if human_approval else "null"
+        human_approval = HumanApprovalRecord(
+            approved=bool(state.get("human_approved")),
+            rationale=str(state.get("human_rationale", "")),
+        )
+    human_approval_json = (
+        canonical_json(human_approval.model_dump()) if human_approval else "null"
+    )
 
     # Mutex Locking: acquire cross-platform filelock before reading parent hash or writing block
     lock_file = f"{target_path}.lock"
@@ -160,7 +179,7 @@ def commit_chained_audit_ledger_node(
             # Query cryptographic parent hash inside lock
             last_index, previous_hash = get_latest_ledger_hash(target_path)
             new_index = last_index + 1
-            timestamp = datetime.now(timezone.utc).isoformat()
+            timestamp = datetime.now(UTC).isoformat()
             deliberation_round = state.get("current_round", 1)
             prompt_tokens = state.get("prompt_tokens", 0)
             completion_tokens = state.get("completion_tokens", 0)
@@ -189,7 +208,7 @@ def commit_chained_audit_ledger_node(
                 verdict=verdict,
                 execution_permitted=execution_permitted,
                 composite_risk_score=composite_risk,
-                stakeholder_votes=serialized_votes_map,
+                stakeholder_votes=validated_votes_map,
                 mitigations=mitigations,
                 human_approval=human_approval,
                 deliberation_round=deliberation_round,
@@ -217,8 +236,8 @@ def commit_chained_audit_ledger_node(
                 stakeholder_votes=state.get("stakeholder_votes", {}),
                 deliberation_round=state.get("current_round", 1),
             )
-        except Exception:
-            pass
+        except Exception as err:  # noqa: BLE001
+            logger.warning("Failed to store proposal in semantic cache: %s", err)
 
     # Return state update marking the state as permanently committed and immutable
     return {
@@ -229,7 +248,7 @@ def commit_chained_audit_ledger_node(
     }
 
 
-def verify_ledger_chain(ledger_path: Optional[Path] = None) -> Tuple[bool, str]:
+def verify_ledger_chain(ledger_path: Path | None = None) -> tuple[bool, str]:
     """Verify cryptographic integrity of the entire SHA-256 JSONL audit ledger.
 
     Returns:
@@ -257,7 +276,7 @@ def verify_ledger_chain(ledger_path: Optional[Path] = None) -> Tuple[bool, str]:
                         continue
                     try:
                         record = json.loads(stripped)
-                    except Exception as e:
+                    except json.JSONDecodeError as e:
                         return False, f"Line {line_num}: Invalid JSON syntax ({e})"
 
                     idx = record.get("index")
@@ -265,7 +284,10 @@ def verify_ledger_chain(ledger_path: Optional[Path] = None) -> Tuple[bool, str]:
                     rec_hash = record.get("record_hash")
 
                     if idx != expected_index:
-                        return False, f"Line {line_num}: Index mismatch (expected {expected_index}, got {idx})"
+                        return (
+                            False,
+                            f"Line {line_num}: Index mismatch (expected {expected_index}, got {idx})",
+                        )
 
                     if prev_hash != expected_prev_hash:
                         return False, (
@@ -276,9 +298,13 @@ def verify_ledger_chain(ledger_path: Optional[Path] = None) -> Tuple[bool, str]:
 
                     # Recompute hash
                     human_approval = record.get("human_approval")
-                    human_approval_json = json.dumps(human_approval, sort_keys=True) if human_approval else "null"
-                    votes_json = json.dumps(record.get("stakeholder_votes", {}), sort_keys=True)
-                    mitigations_json = json.dumps(sorted(record.get("mitigations", [])))
+                    human_approval_json = (
+                        canonical_json(human_approval) if human_approval else "null"
+                    )
+                    votes_json = canonical_json(record.get("stakeholder_votes", {}))
+                    mitigations_json = canonical_json(
+                        sorted(record.get("mitigations", []))
+                    )
                     cost = float(record.get("total_cost_usd", 0.0))
 
                     recomputed = calculate_record_hash(
@@ -306,6 +332,9 @@ def verify_ledger_chain(ledger_path: Optional[Path] = None) -> Tuple[bool, str]:
                     expected_prev_hash = rec_hash
                     expected_index += 1
 
-            return True, f"Ledger verified successfully ({expected_index} records intact)."
+            return (
+                True,
+                f"Ledger verified successfully ({expected_index} records intact).",
+            )
     except Timeout as err:
         raise RuntimeError("Audit ledger lock acquisition timed out") from err

@@ -229,19 +229,30 @@ def test_fastapi_gateway_resume_endpoint(tmp_path, monkeypatch):
     assert suspended_state.get("suspended_for_hitl") is True
 
     # Test 404 for nonexistent proposal with valid signature
+    import time
+    import uuid
+
     nonexistent_id = "nonexistent-id"
     default_rationale = "Operator decision supplied via FastAPI gateway callback"
+    now = time.time()
+    nonexistent_nonce = str(uuid.uuid4())
     nonexistent_token = compute_resume_signature(
         proposal_id=nonexistent_id,
         approved=True,
         rationale=default_rationale,
         secret=test_secret,
+        issued_at=now,
+        expires_at=now + 120.0,
+        nonce=nonexistent_nonce,
     )
     with pytest.raises(HTTPException) as exc_info:
         resume_deliberation(
             ResumeProposalRequest(
                 proposal_id=nonexistent_id,
                 approved=True,
+                issued_at=now,
+                expires_at=now + 120.0,
+                nonce=nonexistent_nonce,
                 auth_token=nonexistent_token,
             )
         )
@@ -249,17 +260,24 @@ def test_fastapi_gateway_resume_endpoint(tmp_path, monkeypatch):
 
     # Test 200 for valid proposal with valid signature
     valid_rationale = "VP Approved via FastAPI gateway"
+    valid_nonce = str(uuid.uuid4())
     valid_token = compute_resume_signature(
         proposal_id=proposal.proposal_id,
         approved=True,
         rationale=valid_rationale,
         secret=test_secret,
+        issued_at=now,
+        expires_at=now + 120.0,
+        nonce=valid_nonce,
     )
     response = resume_deliberation(
         ResumeProposalRequest(
             proposal_id=proposal.proposal_id,
             approved=True,
             rationale=valid_rationale,
+            issued_at=now,
+            expires_at=now + 120.0,
+            nonce=valid_nonce,
             auth_token=valid_token,
         )
     )
